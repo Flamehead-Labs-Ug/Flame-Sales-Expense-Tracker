@@ -1,0 +1,328 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Input } from '@heroui/react';
+import { toast } from 'sonner';
+import { Trash2, Edit, Plus } from 'lucide-react';
+import { useFilter } from '@/lib/context/filter-context';
+import { AuthGuard } from '@/components/auth-guard';
+import { authFetch } from '@/lib/auth-fetch';
+
+interface Project {
+  id: number;
+  project_name: string;
+  project_category_id?: number;
+  category_id?: number;
+  vendor_id?: number;
+  department?: string;
+  budget_allotment?: number;
+  organization_id?: number;
+  created_by: number;
+  created_at: string;
+}
+
+interface Organization {
+  id: number;
+  name: string;
+  description?: string;
+}
+
+interface ProjectCategory {
+  id: number;
+  category_name: string;
+  description?: string;
+}
+
+interface ExpenseCategory {
+  id: number;
+  category_name: string;
+  description?: string;
+  project_category_id?: number;
+}
+
+
+function ProjectsPageContent() {
+  const { refreshProjects, organizations, selectedOrganization } = useFilter();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+
+  const [formData, setFormData] = useState({
+    project_name: '',
+    project_category_id: '',
+    expense_category_id: '',
+    organization_id: ''
+  });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrganization) {
+      loadData();
+    }
+  }, [selectedOrganization]);
+
+  const loadData = async () => {
+    try {
+      const projectsUrl = selectedOrganization ? `/api/projects?org_id=${selectedOrganization}` : '/api/projects';
+      const [projectsRes, projectCatsRes, expenseCatsRes] = await Promise.all([
+        authFetch(projectsUrl),
+        authFetch('/api/project-categories'),
+        authFetch('/api/expense-categories')
+      ]);
+
+      const projectsData = await projectsRes.json();
+      const projectCatsData = await projectCatsRes.json();
+      const expenseCatsData = await expenseCatsRes.json();
+
+      if (projectsData.status === 'success') {
+        setProjects(projectsData.projects || []);
+      }
+      if (projectCatsData.status === 'success') {
+        setProjectCategories(projectCatsData.categories || []);
+      }
+      if (expenseCatsData.status === 'success') {
+        setExpenseCategories(expenseCatsData.categories || []);
+      }
+    } catch (error) {
+      toast.error('Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const params = {
+      project_name: formData.project_name,
+      project_category_id: parseInt(formData.project_category_id),
+      organization_id: parseInt(formData.organization_id)
+    };
+
+    try {
+      const response = await authFetch('/api/projects', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...params,
+          expense_category_id: formData.expense_category_id ? parseInt(formData.expense_category_id) : undefined
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        toast.success(editingProject ? 'Project updated successfully' : 'Project created successfully');
+        setShowForm(false);
+        setEditingProject(null);
+        setFormData({
+          project_name: '',
+          project_category_id: '',
+          expense_category_id: '',
+          organization_id: ''
+        });
+        loadData();
+        refreshProjects(); // Refresh the global projects list
+      } else {
+        toast.error(data.message || 'Operation failed');
+      }
+    } catch (error) {
+      toast.error('Failed to save project');
+    }
+  };
+
+  const handleEdit = (project: Project) => {
+    setEditingProject(project);
+    setFormData({
+      project_name: project.project_name,
+      project_category_id: project.project_category_id?.toString() || '',
+      expense_category_id: project.category_id?.toString() || '',
+      organization_id: project.organization_id?.toString() || ''
+    });
+    setShowForm(true);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this project?')) return;
+
+    try {
+      const response = await authFetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tool: 'delete_project',
+          params: { project_id: id }
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        toast.success('Project deleted successfully');
+        loadData();
+        refreshProjects(); // Refresh the global projects list
+      } else {
+        toast.error(data.message || 'Failed to delete project');
+      }
+    } catch (error) {
+      toast.error('Failed to delete project');
+    }
+  };
+
+  const getCategoryName = (id?: number) => {
+    if (!id) return 'N/A';
+    const category = projectCategories.find(c => c.id === id);
+    return category?.category_name || 'Unknown';
+  };
+
+
+  if (loading) {
+    return <div className="p-6">Loading...</div>;
+  }
+
+  return (
+    <AuthGuard>
+      <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">Projects</h1>
+        <Button color="primary" onClick={() => setShowForm(true)}>
+          <Plus className="w-4 h-4 mr-2" />
+          Add Project
+        </Button>
+      </div>
+
+      <Modal isOpen={showForm} onOpenChange={setShowForm}>
+        <ModalContent>
+          <ModalHeader>
+            <h3>{editingProject ? 'Edit Project' : 'Add New Project'}</h3>
+          </ModalHeader>
+          <form onSubmit={handleSubmit}>
+            <ModalBody>
+              <div className="space-y-4">
+                <Input
+                  label="Project Name"
+                  placeholder="Enter project name"
+                  value={formData.project_name}
+                  onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
+                  isRequired
+                />
+                <div>
+                  <label className="block text-sm font-medium mb-2">Project Category *</label>
+                  <select 
+                    value={formData.project_category_id} 
+                    onChange={(e) => setFormData({ ...formData, project_category_id: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select category</option>
+                    {projectCategories.map((category) => (
+                      <option key={category.id} value={category.id.toString()}>
+                        {category.category_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Organization *</label>
+                  <select 
+                    value={formData.organization_id} 
+                    onChange={(e) => setFormData({ ...formData, organization_id: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select organization</option>
+                    {organizations.map((org) => (
+                      <option key={org.id} value={org.id.toString()}>
+                        {org.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Expense Category</label>
+                  <select 
+                    value={formData.expense_category_id} 
+                    onChange={(e) => setFormData({ ...formData, expense_category_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select expense category (optional)</option>
+                    {expenseCategories.map((category) => (
+                      <option key={category.id} value={category.id.toString()}>
+                        {category.category_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              <Button 
+                color="danger" 
+                variant="light" 
+                onPress={() => {
+                  setShowForm(false);
+                  setEditingProject(null);
+                  setFormData({
+                    project_name: '',
+                    project_category_id: '',
+                    expense_category_id: '',
+                    organization_id: ''
+                  });
+                }}
+              >
+                Cancel
+              </Button>
+              <Button color="primary" type="submit">
+                {editingProject ? 'Update' : 'Create'}
+              </Button>
+            </ModalFooter>
+          </form>
+        </ModalContent>
+      </Modal>
+
+      <div className="space-y-4">
+        {projects.map((project) => (
+          <div key={project.id} className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex justify-between items-start">
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold text-gray-900">{project.project_name}</h3>
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => handleEdit(project)}
+                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Edit
+                </button>
+                <button 
+                  onClick={() => handleDelete(project.id)}
+                  className="inline-flex items-center px-3 py-1.5 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {projects.length === 0 && (
+          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-500">
+            No projects found. Create your first project to get started.
+          </div>
+        )}
+      </div>
+      </div>
+    </AuthGuard>
+  );
+}
+
+export default function ProjectsPage() {
+  return <ProjectsPageContent />
+}

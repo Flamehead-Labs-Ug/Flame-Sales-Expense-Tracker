@@ -80,7 +80,7 @@ function ReasoningPartUI() {
   const text = typeof part?.data === 'string' ? part.data : ''
   if (!text.trim()) return null
   return (
-    <details className="mt-3 rounded-md border bg-muted/30 p-3 text-sm">
+    <details className="mb-2 inline-block w-fit max-w-[36rem] rounded-md border bg-muted/30 p-3 text-sm">
       <summary className="cursor-pointer select-none font-medium">Reasoning</summary>
       <div className="mt-2 whitespace-pre-wrap text-muted-foreground">{text}</div>
     </details>
@@ -104,8 +104,8 @@ function ChatMessagesListWithMcp() {
           <ChatMessage.Content>
             <ChatMessage.Part.File />
             <ChatMessage.Part.Event />
-            <ChatMessage.Part.Markdown />
             <ReasoningPartUI />
+            <ChatMessage.Part.Markdown />
             <McpUiPartUI />
             <ChatMessage.Part.Artifact />
             <ChatMessage.Part.Source />

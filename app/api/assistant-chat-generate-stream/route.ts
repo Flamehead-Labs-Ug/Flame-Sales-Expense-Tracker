@@ -236,22 +236,49 @@ function parseAssistantNaturalToolIntent(input: string):
   const raw = input.trim().toLowerCase()
   if (!raw) return null
 
+  const normalized = raw.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const startsWithAny = (prefixes: string[]) => prefixes.some((p) => normalized.startsWith(p))
+
   if (
-    raw === 'projects' ||
-    raw === 'project' ||
-    raw === 'show projects' ||
-    raw === 'list projects' ||
-    raw.includes('which projects') ||
-    raw.includes('my projects') ||
-    raw.includes('projects in my organisation') ||
-    raw.includes('projects in my organization')
+    normalized === 'dashboard' ||
+    normalized === 'show dashboard' ||
+    startsWithAny(['open dashboard', 'view dashboard']) ||
+    normalized.includes('show dashboard')
+  ) {
+    return { toolName: 'show_dashboard', toolArgs: {}, message: 'Opening Dashboard…' }
+  }
+
+  if (
+    normalized === 'reports' ||
+    normalized === 'show reports' ||
+    startsWithAny(['open reports', 'view reports']) ||
+    normalized.includes('show reports')
+  ) {
+    return { toolName: 'show_reports', toolArgs: {}, message: 'Opening Reports…' }
+  }
+
+  if (
+    normalized === 'projects' ||
+    normalized === 'project' ||
+    normalized === 'show projects' ||
+    normalized === 'list projects' ||
+    normalized.includes('which projects') ||
+    normalized.includes('my projects') ||
+    normalized.includes('projects in my organisation') ||
+    normalized.includes('projects in my organization') ||
+    /\bproje\w*\b/i.test(normalized)
   ) {
     return { toolName: 'show_projects', toolArgs: {}, message: 'Opening Projects…' }
   }
 
-  if (raw === 'expenses' || raw === 'show expenses' || raw === 'list expenses' || raw.includes('expenses')) {
-    const projectMatch = raw.match(/project\s*(?:id)?\s*[=:]?\s*(\d+)/i)
-    const cycleMatch = raw.match(/cycle\s*(?:id)?\s*[=:]?\s*(\d+)/i)
+  if (
+    normalized === 'expenses' ||
+    normalized === 'show expenses' ||
+    normalized === 'list expenses' ||
+    normalized.includes('expenses')
+  ) {
+    const projectMatch = normalized.match(/project\s*(?:id)?\s*[=:]?\s*(\d+)/i)
+    const cycleMatch = normalized.match(/cycle\s*(?:id)?\s*[=:]?\s*(\d+)/i)
     const toolArgs: Record<string, unknown> = {}
     if (projectMatch?.[1]) toolArgs.projectId = projectMatch[1]
     if (cycleMatch?.[1]) toolArgs.cycleId = cycleMatch[1]
@@ -316,6 +343,14 @@ function parseAssistantSlashCommand(input: string):
 
   if (/^\/show\s+projects\b/i.test(raw)) {
     return { toolName: 'show_projects', toolArgs: {}, message: 'Opening Projects…' }
+  }
+
+  if (/^\/show\s+dashboard\b/i.test(raw)) {
+    return { toolName: 'show_dashboard', toolArgs: {}, message: 'Opening Dashboard…' }
+  }
+
+  if (/^\/show\s+reports\b/i.test(raw)) {
+    return { toolName: 'show_reports', toolArgs: {}, message: 'Opening Reports…' }
   }
 
   const expensesMatch = raw.match(/^\/show\s+expenses(?:\s+project=(\S+))?(?:\s+cycle=(\S+))?\s*$/i)

@@ -24,13 +24,13 @@ const flamePrompt =
   'Your goal is to help users manage organizations, projects, cycles, sales, expenses, invoices, receipts, customers, vendors, categories, payment methods, teams, and reports.\n' +
   'Ask clarifying questions when required fields are missing.\n' +
   'Prefer using tools to fetch or update real data instead of guessing.\n' +
-  'When asked to show the UI (organizations/organisations, dashboard, reports, projects, expenses), call the appropriate show_* tool to open the UI exactly once, then respond with a short confirmation.\n' +
+  'When asked to show the UI (organizations, dashboard, reports, projects, expenses), call the appropriate show_* tool (use the canonical US spelling, e.g. show_organizations) exactly once, then respond with a short confirmation.\n' +
   'Be concise and action-oriented.'
 
 const flameAgent = new BuiltInAgent({
   model,
   prompt: flamePrompt,
-  maxSteps: 5,
+  maxSteps: 2,
 })
 
 const copilotRuntime = new CopilotRuntime({

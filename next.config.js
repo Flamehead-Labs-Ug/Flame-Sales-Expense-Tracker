@@ -11,16 +11,26 @@ module.exports = async () => {
     // Configure pageExtensions to include md and mdx
     pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
     async rewrites() {
-      return [
-        {
-          source: '/api/v1/copilotkit',
-          destination: '/api/copilotkit',
-        },
-        {
-          source: '/api/v1/copilotkit/:path*',
-          destination: '/api/copilotkit/:path*',
-        },
-      ]
+      const assistantBaseUrl = process.env.ASSISTANT_BASE_URL || process.env.ASSISTANT_DEV_URL || ''
+      const assistantUrl = assistantBaseUrl ? assistantBaseUrl.replace(/\/$/, '') : ''
+
+      const assistantRewrites = assistantUrl
+        ? [
+            {
+              source: '/assistant',
+              destination: `${assistantUrl}/assistant`,
+            },
+            {
+              source: '/assistant/:path*',
+              destination: `${assistantUrl}/assistant/:path*`,
+            },
+          ]
+        : []
+
+      return {
+        beforeFiles: assistantRewrites,
+        afterFiles: [],
+      }
     },
     images: {
       // Disable Next.js image optimization so Cloudflare/OpenNext serves

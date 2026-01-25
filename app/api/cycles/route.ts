@@ -137,6 +137,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const projectId = searchParams.get('project_id')
     const orgId = searchParams.get('org_id')
+    const id = searchParams.get('id')
     
     const user = await getApiOrSessionUser(request as NextRequest)
     if (!user) {
@@ -208,6 +209,12 @@ export async function GET(request: Request) {
       paramCount++
       query += ` AND project_id = $${paramCount}`
       params.push(projectId)
+    }
+
+    if (id) {
+      paramCount++
+      query += ` AND id = $${paramCount}`
+      params.push(id)
     }
     
     query += ' ORDER BY cycle_number'

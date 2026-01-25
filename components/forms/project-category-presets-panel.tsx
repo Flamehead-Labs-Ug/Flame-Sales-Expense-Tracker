@@ -72,8 +72,10 @@ export function ProjectCategoryPresetsPanel({
                     <span className="font-medium text-foreground truncate">{preset.name}</span>
                     {hasExtraInfo && (
                       <div className="group relative inline-flex">
-                        <Info className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                        <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground shrink-0">
+                          <Info className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                           {preset.description && <span>{preset.description}</span>}
                           {preset.expense_presets && preset.expense_presets.length > 0 && (
                             <span>

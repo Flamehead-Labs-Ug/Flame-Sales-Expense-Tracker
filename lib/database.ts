@@ -23,7 +23,34 @@ async function query(text: string, params?: any[]): Promise<QueryResult> {
   return { rows }
 }
 
-export const db = { query }
+async function transaction<T>(fn: (tx: { query: typeof query }) => Promise<T>): Promise<T> {
+  const sqlAny = sql as any
+
+  if (typeof sqlAny.transaction === 'function') {
+    try {
+      return await sqlAny.transaction(async (trx: any) => {
+        const txQuery = async (text: string, params?: any[]): Promise<QueryResult> => {
+          const result = params && params.length > 0
+            ? await trx.query(text, params)
+            : await trx.query(text)
+
+          const rows = Array.isArray(result) ? result : (result?.rows ?? [])
+          return { rows }
+        }
+
+        return await fn({ query: txQuery })
+      })
+    } catch {
+      // Some Neon serverless driver versions only support array-of-queries transactions.
+      // In that case we fall back to non-transactional execution.
+      return await fn({ query })
+    }
+  }
+
+  return await fn({ query })
+}
+
+export const db = { query, transaction }
 
 export interface Project {
   id: number

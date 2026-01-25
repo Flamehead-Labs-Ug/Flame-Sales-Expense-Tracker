@@ -8,7 +8,8 @@ import { AuthGuard } from '@/components/auth-guard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+
 import {
   Dialog,
   DialogContent,
@@ -40,8 +41,8 @@ interface Organization {
 }
 
 interface ProjectCategory {
- id: number;
- category_name: string;
+  id: number;
+  category_name: string;
   description?: string;
 }
 
@@ -61,6 +62,7 @@ interface ReportSummary {
 
 function ProjectsPageContent() {
   const { refreshProjects, organizations, selectedOrganization, setSelectedProject, currentCurrencyCode } = useFilter();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([]);
@@ -266,10 +268,16 @@ function ProjectsPageContent() {
                   </div>
                   <div className="mt-4 flex justify-end gap-2">
                     <button
+                      onClick={() => router.push(`/projects/${project.id}`)}
+                      className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
+                    >
+                      View
+                    </button>
+                    <button
                       onClick={() => handleEdit(project)}
                       className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
                     >
-                      Edit
+                      <Edit className="w-4 h-4 mr-1" />
                     </button>
                     <button
                       onClick={() => handleDelete(project.id)}

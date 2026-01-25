@@ -168,16 +168,26 @@ export async function GET(request: NextRequest) {
     }
     const { organizationId } = user;
 
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
     const result = user.role === 'admin'
       ? await db.query(
-          'SELECT * FROM products WHERE organization_id = $1 ORDER BY product_name',
-          [organizationId]
+          `
+          SELECT *
+            FROM products
+           WHERE organization_id = $1
+             AND ($2::int IS NULL OR id = $2::int)
+           ORDER BY product_name
+          `,
+          [organizationId, id ? parseInt(id, 10) : null]
         )
       : await db.query(
           `
           SELECT *
             FROM products
            WHERE organization_id = $1
+             AND ($3::int IS NULL OR id = $3::int)
              AND project_id IS NOT NULL
              AND project_id IN (
                SELECT pa.project_id
@@ -191,7 +201,7 @@ export async function GET(request: NextRequest) {
              )
            ORDER BY product_name
           `,
-          [organizationId, user.id]
+          [organizationId, user.id, id ? parseInt(id, 10) : null]
         );
 
     const productRows = result.rows;
@@ -333,6 +343,9 @@ export async function POST(request: NextRequest) {
     const sku = generateSKU(product_name, primaryVariant.variant_value);
     const safeAttributes = Array.isArray(attributes) ? attributes : [];
 
+    // Stock is managed through inventory flows; always start new products at 0.
+    const initialStock = 0;
+
     const result = await db.query(
       'INSERT INTO products (product_name, description, sku, unit_cost, selling_price, quantity_in_stock, reorder_level, category, variant_name, variant_value, unit_of_measurement, images, project_id, cycle_id, project_category_id, organization_id, created_by, status, attributes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *',
       [
@@ -341,7 +354,7 @@ export async function POST(request: NextRequest) {
         sku,
         primaryVariant.unit_cost || null,
         primaryVariant.selling_price || null,
-        primaryVariant.quantity_in_stock || 0,
+        initialStock,
         reorder_level || 0,
         category || null,
         primaryVariant.variant_name || null,
@@ -373,7 +386,7 @@ export async function POST(request: NextRequest) {
             v.label || null,
             v.unit_cost || null,
             v.selling_price || null,
-            v.quantity_in_stock || 0,
+            0,
             v.unit_of_measurement || null,
             variantImages,
             variantAttributes,
@@ -444,6 +457,12 @@ export async function PUT(request: NextRequest) {
     const primaryVariant = safeVariants[0] || {};
     const safeAttributes = Array.isArray(attributes) ? attributes : [];
 
+    const existingProductRes = await db.query(
+      'SELECT quantity_in_stock FROM products WHERE id = $1 AND organization_id = $2',
+      [id, organizationId],
+    );
+    const existingProductStock = existingProductRes.rows[0]?.quantity_in_stock ?? 0;
+
     const result = await db.query(
       'UPDATE products SET product_name = $1, description = $2, unit_cost = $3, selling_price = $4, quantity_in_stock = $5, reorder_level = $6, category = $7, variant_name = $8, variant_value = $9, unit_of_measurement = $10, images = $11, project_id = $12, cycle_id = $13, project_category_id = $14, status = $15, attributes = $16 WHERE id = $17 AND organization_id = $18 RETURNING *',
       [
@@ -451,7 +470,7 @@ export async function PUT(request: NextRequest) {
         description,
         primaryVariant.unit_cost,
         primaryVariant.selling_price,
-        primaryVariant.quantity_in_stock,
+        existingProductStock,
         reorder_level,
         category,
         primaryVariant.variant_name,
@@ -480,27 +499,62 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Replace existing variants with the new set
-    await db.query('DELETE FROM product_variants WHERE product_id = $1', [id]);
-
+    // Upsert variants instead of delete+reinsert so we preserve stock quantities.
     if (safeVariants.length > 0) {
+      const existingVariantsRes = await db.query(
+        'SELECT id, quantity_in_stock FROM product_variants WHERE product_id = $1',
+        [id],
+      );
+      const existingVariantsById = new Map<number, number>();
+      for (const row of existingVariantsRes.rows) {
+        existingVariantsById.set(row.id, row.quantity_in_stock ?? 0);
+      }
+
+      const seenVariantIds = new Set<number>();
+
       for (const v of safeVariants) {
         const imagesJson = JSON.stringify(v.images || []);
         const attributesJson = JSON.stringify(Array.isArray(v.attributes) ? v.attributes : []);
 
-        await db.query(
-          'INSERT INTO product_variants (product_id, label, unit_cost, selling_price, quantity_in_stock, unit_of_measurement, images, attributes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-          [
-            id,
-            v.label || null,
-            v.unit_cost || null,
-            v.selling_price || null,
-            v.quantity_in_stock || 0,
-            v.unit_of_measurement || null,
-            imagesJson,
-            attributesJson,
-          ]
-        );
+        if (v.id) {
+          seenVariantIds.add(v.id);
+          const existingStock = existingVariantsById.get(v.id) ?? 0;
+          await db.query(
+            'UPDATE product_variants SET label = $1, unit_cost = $2, selling_price = $3, quantity_in_stock = $4, unit_of_measurement = $5, images = $6, attributes = $7 WHERE id = $8 AND product_id = $9',
+            [
+              v.label || null,
+              v.unit_cost || null,
+              v.selling_price || null,
+              existingStock,
+              v.unit_of_measurement || null,
+              imagesJson,
+              attributesJson,
+              v.id,
+              id,
+            ],
+          );
+        } else {
+          await db.query(
+            'INSERT INTO product_variants (product_id, label, unit_cost, selling_price, quantity_in_stock, unit_of_measurement, images, attributes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+            [
+              id,
+              v.label || null,
+              v.unit_cost || null,
+              v.selling_price || null,
+              0,
+              v.unit_of_measurement || null,
+              imagesJson,
+              attributesJson,
+            ],
+          );
+        }
+      }
+
+      // Remove variants that were deleted in the UI
+      for (const existingId of Array.from(existingVariantsById.keys())) {
+        if (!seenVariantIds.has(existingId)) {
+          await db.query('DELETE FROM product_variants WHERE id = $1 AND product_id = $2', [existingId, id]);
+        }
       }
     }
 

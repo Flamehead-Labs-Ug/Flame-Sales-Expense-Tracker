@@ -73,6 +73,7 @@ const createEmptyFormData = (): ProductFormData => ({
 });
 
 const createEmptyVariant = () => ({
+  id: null as number | null,
   label: '',
   unit_cost: '',
   selling_price: '',
@@ -132,6 +133,7 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
               ];
 
           return {
+            id: v.id,
             label: v.label || '',
             unit_cost: v.unit_cost?.toString() || '',
             selling_price: v.selling_price?.toString() || '',
@@ -176,6 +178,7 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
 
         setVariants([
           {
+            id: null,
             label: labelFromAttributes,
             unit_cost: editingProduct.unit_cost?.toString() || '',
             selling_price: editingProduct.selling_price?.toString() || '',
@@ -268,6 +271,7 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
             unit: '',
           };
         return {
+          ...(variant.id ? { id: variant.id } : {}),
           label: variant.label,
           attributes: variant.attributes,
           variant_name: primaryAttr.type,
@@ -423,8 +427,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
               <div className="flex items-center gap-1 mb-1">
                 <label className="block text-sm font-medium text-foreground">Product Name *</label>
                 <div className="group relative">
-                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                  <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                    <Info className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                     Overall name of the product (e.g., &quot;Office Chair&quot;, &quot;Rice 25kg&quot;)
                   </div>
                 </div>
@@ -441,8 +447,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
               <div className="flex items-center gap-1 mb-1">
                 <label className="block text-sm font-medium text-foreground">SKU *</label>
                 <div className="group relative">
-                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                  <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                    <Info className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                     System-generated stock keeping unit used to uniquely identify this product
                   </div>
                 </div>
@@ -457,8 +465,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
               <div className="flex items-center gap-1 mb-1">
                 <label className="block text-sm font-medium text-foreground">Reorder Level</label>
                 <div className="group relative">
-                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                  <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                    <Info className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                     Minimum stock level that should trigger a restock alert
                   </div>
                 </div>
@@ -477,8 +487,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
             <div className="flex items-center gap-1 mb-1">
               <label className="block text-sm font-medium text-foreground">Description</label>
               <div className="group relative">
-                <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                  <Info className="w-3.5 h-3.5" />
+                </div>
+                <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                   Optional extra details about the product to help you and others recognize it
                 </div>
               </div>
@@ -525,8 +537,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
               <div className="flex items-center gap-1 mb-1">
                 <label className="block text-sm font-medium text-foreground">Variant Name</label>
                 <div className="group relative">
-                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                  <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                    <Info className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                     Friendly name for this specific variant (e.g., &quot;Red Medium&quot;, &quot;5kg Bag&quot;)
                   </div>
                 </div>
@@ -547,8 +561,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
                   <div className="flex items-center gap-1 mb-1">
                     <label className="block text-sm font-medium text-foreground">Attribute</label>
                     <div className="group relative">
-                      <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                      <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                      <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                        <Info className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                         Choose what kind of attribute this is (e.g., Size, Color, Weight)
                       </div>
                     </div>
@@ -567,8 +583,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
                   <div className="flex items-center gap-1 mb-1">
                     <label className="block text-sm font-medium text-foreground">Attribute Value</label>
                     <div className="group relative">
-                      <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                      <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                      <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                        <Info className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                         Select the predefined value for this attribute (e.g., cm, kg, Red)
                       </div>
                     </div>
@@ -595,8 +613,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
                   <div className="flex items-center gap-1 mb-1">
                     <label className="block text-sm font-medium text-foreground">Value</label>
                     <div className="group relative">
-                      <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                      <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                      <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                        <Info className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                         Text or number that goes with the attribute value (e.g., 5 cm, Red, Large)
                       </div>
                     </div>
@@ -639,8 +659,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
                       : 'Unit Cost'}
                   </label>
                   <div className="group relative">
-                    <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                    <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                    <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                      <Info className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                       How much it costs you to buy one unit of this variant
                     </div>
                   </div>
@@ -668,8 +690,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
                       : 'Selling Price'}
                   </label>
                   <div className="group relative">
-                    <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                    <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                    <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                      <Info className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                       Price you charge your customer for one unit of this variant
                     </div>
                   </div>
@@ -693,8 +717,10 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
                 <div className="flex items-center gap-1 mb-1">
                   <label className="block text-sm font-medium text-foreground">Quantity in Stock</label>
                   <div className="group relative">
-                    <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                    <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                    <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                      <Info className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                       Current number of units available in inventory for this variant
                     </div>
                   </div>
@@ -703,9 +729,8 @@ export function ProductForm({ editingProduct, selectedProject, selectedCycle, pr
                   type="number"
                   placeholder="Stock quantity"
                   value={variant.quantity_in_stock}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    updateVariant(index, 'quantity_in_stock', e.target.value)
-                  }
+                  readOnly
+                  className="bg-muted text-muted-foreground"
                 />
               </div>
             </div>

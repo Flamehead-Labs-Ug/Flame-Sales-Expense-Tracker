@@ -5,31 +5,36 @@ import { db } from '@/lib/database'
 // Direct database implementation of MCP tools
 
 async function addProjectCategory(params: any, organizationId: number) {
-  const { category_name, description, is_custom } = params;
+  const { category_name, description, is_custom, project_id } = params;
   const result = await db.query(
-    'INSERT INTO project_categories (category_name, description, is_custom, organization_id) VALUES ($1, $2, $3, $4) RETURNING *',
-    [category_name, description, is_custom || true, organizationId]
+    'INSERT INTO project_categories (category_name, description, is_custom, organization_id, project_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+    [category_name, description || null, is_custom ? 1 : 0, organizationId, project_id ?? null]
   );
   return result.rows[0];
 }
 
 async function addExpenseCategory(params: any) {
-  const { category_name, description, project_category_id, organization_id } = params;
+  const { category_name, description, project_category_id, organization_id, project_id } = params;
   
   if (!project_category_id) {
     throw new Error('Project category ID is required');
   }
 
+  if (!organization_id) {
+    throw new Error('Organization ID is required');
+  }
+
   const result = await db.query(
     `INSERT INTO expense_category 
-     (category_name, description, project_category_id, organization_id) 
-     VALUES ($1, $2, $3, $4) 
+     (category_name, description, project_category_id, organization_id, project_id) 
+     VALUES ($1, $2, $3, $4, $5) 
      RETURNING *`,
     [
       category_name, 
       description || null, 
       project_category_id, 
-      organization_id || 1 // Default to organization 1 if not provided
+      organization_id,
+      project_id ?? null,
     ]
   );
   
@@ -142,9 +147,17 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    return NextResponse.json({ 
+    if (tool === 'add_project_category' || tool === 'add_expense_category') {
+      return NextResponse.json({
+        status: 'success',
+        category: result,
+        data: result,
+      });
+    }
+
+    return NextResponse.json({
       status: 'success',
-      data: result 
+      data: result,
     });
 
   } catch (error: unknown) {

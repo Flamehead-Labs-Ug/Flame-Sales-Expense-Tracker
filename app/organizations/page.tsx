@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Plus, Edit, Trash2 } from 'lucide-react';
 import { useFilter } from '@/lib/context/filter-context';
 import { AuthGuard } from '@/components/auth-guard';
 import { Button } from '@/components/ui/button';
+
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import {
   Dialog,
@@ -32,6 +34,7 @@ interface ReportSummary {
 
 function OrganizationsPageContent() {
   const { currentCurrencyCode, refreshOrganizations } = useFilter();
+  const router = useRouter();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<ReportSummary | null>(null);
@@ -159,6 +162,12 @@ function OrganizationsPageContent() {
                     </p>
                   </div>
                   <div className="mt-4 flex justify-end gap-2">
+                    <button
+                      onClick={() => router.push(`/organizations/${org.id}`)}
+                      className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
+                    >
+                      View
+                    </button>
                     <button
                       onClick={() => handleEdit(org)}
                       className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"

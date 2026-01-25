@@ -301,7 +301,21 @@ export async function POST(request: NextRequest) {
     }
     const { organizationId, id: userId } = user
 
-    const { project_id, category_id, vendor_id, payment_method_id, cycle_id, expense_name, description, amount, expense_date } = await request.json()
+    const {
+      project_id,
+      category_id,
+      vendor_id,
+      payment_method_id,
+      cycle_id,
+      expense_name,
+      description,
+      amount,
+      expense_date,
+      product_id,
+      variant_id,
+      inventory_quantity,
+      inventory_unit_cost,
+    } = await request.json()
 
     if (user.role !== 'admin') {
       if (!project_id) {
@@ -328,13 +342,70 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const numericAmount = typeof amount === 'number' ? amount : parseFloat(amount || '0') || 0
-    const amountOrgCcy = await computeAmountInOrgCurrency(organizationId, project_id || null, numericAmount)
+    const safeInventoryQuantity = typeof inventory_quantity === 'number'
+      ? inventory_quantity
+      : parseInt(inventory_quantity || '0', 10) || 0
 
-    const result = await db.query(
-      'INSERT INTO expenses (project_id, category_id, vendor_id, payment_method_id, cycle_id, expense_name, description, amount, amount_org_ccy, date_time_created, organization_id, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *',
-      [project_id || null, category_id || null, vendor_id || null, payment_method_id || null, cycle_id || null, expense_name || null, description || null, numericAmount, amountOrgCcy, expense_date || new Date().toISOString(), organizationId, userId]
-    )
+    const safeInventoryUnitCost = typeof inventory_unit_cost === 'number'
+      ? inventory_unit_cost
+      : parseFloat(inventory_unit_cost || '0') || 0
+
+    const computedAmount = (safeInventoryQuantity > 0 && safeInventoryUnitCost > 0)
+      ? safeInventoryQuantity * safeInventoryUnitCost
+      : (typeof amount === 'number' ? amount : parseFloat(amount || '0') || 0)
+
+    const numericAmount = computedAmount
+
+    const result = await db.transaction(async (tx) => {
+      const amountOrgCcy = await computeAmountInOrgCurrency(organizationId, project_id || null, numericAmount)
+
+      const insert = await tx.query(
+        'INSERT INTO expenses (project_id, category_id, vendor_id, payment_method_id, cycle_id, expense_name, description, amount, amount_org_ccy, date_time_created, organization_id, created_by, product_id, variant_id, inventory_quantity, inventory_unit_cost) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *',
+        [
+          project_id || null,
+          category_id || null,
+          vendor_id || null,
+          payment_method_id || null,
+          cycle_id || null,
+          expense_name || null,
+          description || null,
+          numericAmount,
+          amountOrgCcy,
+          expense_date || new Date().toISOString(),
+          organizationId,
+          userId,
+          product_id || null,
+          variant_id || null,
+          safeInventoryQuantity || null,
+          safeInventoryUnitCost || null,
+        ],
+      )
+
+      // Increase stock if this is an inventory-linked purchase.
+      if (safeInventoryQuantity > 0) {
+        if (product_id) {
+          const productUpdate = await tx.query(
+            'UPDATE products SET quantity_in_stock = quantity_in_stock + $1 WHERE id = $2 AND organization_id = $3 RETURNING id',
+            [safeInventoryQuantity, product_id, organizationId],
+          )
+          if (productUpdate.rows.length === 0) {
+            throw new Error('Failed to update product stock. Product not found or permission denied.')
+          }
+        }
+
+        if (variant_id) {
+          const variantUpdate = await tx.query(
+            'UPDATE product_variants SET quantity_in_stock = quantity_in_stock + $1 WHERE id = $2 RETURNING id',
+            [safeInventoryQuantity, variant_id],
+          )
+          if (variantUpdate.rows.length === 0) {
+            throw new Error('Failed to update product variant stock. Variant not found.')
+          }
+        }
+      }
+
+      return insert
+    })
     
     return NextResponse.json({ 
       status: 'success', 
@@ -357,7 +428,22 @@ export async function PUT(request: NextRequest) {
     }
     const { organizationId } = user
 
-    const { id, project_id, category_id, vendor_id, payment_method_id, cycle_id, expense_name, description, amount, expense_date } = await request.json()
+    const {
+      id,
+      project_id,
+      category_id,
+      vendor_id,
+      payment_method_id,
+      cycle_id,
+      expense_name,
+      description,
+      amount,
+      expense_date,
+      product_id,
+      variant_id,
+      inventory_quantity,
+      inventory_unit_cost,
+    } = await request.json()
 
     if (user.role !== 'admin') {
       const existing = await db.query(
@@ -393,13 +479,99 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    const numericAmount = typeof amount === 'number' ? amount : parseFloat(amount || '0') || 0
-    const amountOrgCcy = await computeAmountInOrgCurrency(organizationId, project_id || null, numericAmount)
+    const safeInventoryQuantity = typeof inventory_quantity === 'number'
+      ? inventory_quantity
+      : parseInt(inventory_quantity || '0', 10) || 0
 
-    const result = await db.query(
-      'UPDATE expenses SET project_id = $1, category_id = $2, vendor_id = $3, payment_method_id = $4, cycle_id = $5, expense_name = $6, description = $7, amount = $8, amount_org_ccy = $9, date_time_created = $10 WHERE id = $11 AND organization_id = $12 RETURNING *',
-      [project_id, category_id, vendor_id, payment_method_id, cycle_id, expense_name || null, description, numericAmount, amountOrgCcy, expense_date, id, organizationId]
-    )
+    const safeInventoryUnitCost = typeof inventory_unit_cost === 'number'
+      ? inventory_unit_cost
+      : parseFloat(inventory_unit_cost || '0') || 0
+
+    const computedAmount = (safeInventoryQuantity > 0 && safeInventoryUnitCost > 0)
+      ? safeInventoryQuantity * safeInventoryUnitCost
+      : (typeof amount === 'number' ? amount : parseFloat(amount || '0') || 0)
+
+    const numericAmount = computedAmount
+
+    const result = await db.transaction(async (tx) => {
+      const originalRes = await tx.query(
+        'SELECT product_id, variant_id, inventory_quantity FROM expenses WHERE id = $1 AND organization_id = $2',
+        [id, organizationId],
+      )
+      if (!originalRes.rows.length) {
+        throw new Error('Expense not found')
+      }
+
+      const original = originalRes.rows[0]
+      const originalProductId = original.product_id as number | null
+      const originalVariantId = original.variant_id as number | null
+      const originalQty = typeof original.inventory_quantity === 'number'
+        ? original.inventory_quantity
+        : parseInt(original.inventory_quantity || '0', 10) || 0
+
+      // Revert original stock impact if it was inventory-linked
+      if (originalQty > 0) {
+        if (originalProductId) {
+          await tx.query(
+            'UPDATE products SET quantity_in_stock = quantity_in_stock - $1 WHERE id = $2 AND organization_id = $3',
+            [originalQty, originalProductId, organizationId],
+          )
+        }
+        if (originalVariantId) {
+          await tx.query(
+            'UPDATE product_variants SET quantity_in_stock = quantity_in_stock - $1 WHERE id = $2',
+            [originalQty, originalVariantId],
+          )
+        }
+      }
+
+      // Apply new stock impact
+      if (safeInventoryQuantity > 0) {
+        if (product_id) {
+          const productUpdate = await tx.query(
+            'UPDATE products SET quantity_in_stock = quantity_in_stock + $1 WHERE id = $2 AND organization_id = $3 RETURNING id',
+            [safeInventoryQuantity, product_id, organizationId],
+          )
+          if (productUpdate.rows.length === 0) {
+            throw new Error('Failed to update product stock. Product not found or permission denied.')
+          }
+        }
+
+        if (variant_id) {
+          const variantUpdate = await tx.query(
+            'UPDATE product_variants SET quantity_in_stock = quantity_in_stock + $1 WHERE id = $2 RETURNING id',
+            [safeInventoryQuantity, variant_id],
+          )
+          if (variantUpdate.rows.length === 0) {
+            throw new Error('Failed to update product variant stock. Variant not found.')
+          }
+        }
+      }
+
+      const amountOrgCcy = await computeAmountInOrgCurrency(organizationId, project_id || null, numericAmount)
+
+      return await tx.query(
+        'UPDATE expenses SET project_id = $1, category_id = $2, vendor_id = $3, payment_method_id = $4, cycle_id = $5, expense_name = $6, description = $7, amount = $8, amount_org_ccy = $9, date_time_created = $10, product_id = $11, variant_id = $12, inventory_quantity = $13, inventory_unit_cost = $14 WHERE id = $15 AND organization_id = $16 RETURNING *',
+        [
+          project_id,
+          category_id,
+          vendor_id,
+          payment_method_id,
+          cycle_id,
+          expense_name || null,
+          description,
+          numericAmount,
+          amountOrgCcy,
+          expense_date,
+          product_id || null,
+          variant_id || null,
+          safeInventoryQuantity || null,
+          safeInventoryUnitCost || null,
+          id,
+          organizationId,
+        ],
+      )
+    })
     
     return NextResponse.json({ 
       status: 'success', 
@@ -454,7 +626,37 @@ export async function DELETE(request: NextRequest) {
       }
     }
     
-    await db.query('DELETE FROM expenses WHERE id = $1 AND organization_id = $2', [id, organizationId])
+    await db.transaction(async (tx) => {
+      const existing = await tx.query(
+        'SELECT product_id, variant_id, inventory_quantity FROM expenses WHERE id = $1 AND organization_id = $2',
+        [id, organizationId],
+      )
+      if (!existing.rows.length) {
+        return
+      }
+
+      const row = existing.rows[0]
+      const qty = typeof row.inventory_quantity === 'number'
+        ? row.inventory_quantity
+        : parseInt(row.inventory_quantity || '0', 10) || 0
+
+      if (qty > 0) {
+        if (row.product_id) {
+          await tx.query(
+            'UPDATE products SET quantity_in_stock = quantity_in_stock - $1 WHERE id = $2 AND organization_id = $3',
+            [qty, row.product_id, organizationId],
+          )
+        }
+        if (row.variant_id) {
+          await tx.query(
+            'UPDATE product_variants SET quantity_in_stock = quantity_in_stock - $1 WHERE id = $2',
+            [qty, row.variant_id],
+          )
+        }
+      }
+
+      await tx.query('DELETE FROM expenses WHERE id = $1 AND organization_id = $2', [id, organizationId])
+    })
     
     return NextResponse.json({ 
       status: 'success', 

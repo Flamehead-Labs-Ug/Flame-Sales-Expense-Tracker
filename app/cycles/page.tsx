@@ -8,7 +8,8 @@ import { AuthGuard } from '@/components/auth-guard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+
 import {
   Dialog,
   DialogContent,
@@ -50,6 +51,7 @@ interface ReportSummary {
 
 function CyclesPageContent() {
   const { selectedProject, projects, refreshCycles, currentCurrencyCode, setSelectedCycle } = useFilter();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -461,6 +463,12 @@ function CyclesPageContent() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <button 
+                    onClick={() => router.push(`/cycles/${cycle.id}`)}
+                    className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
+                  >
+                    View
+                  </button>
                   <button 
                     onClick={() => handleEdit(cycle)}
                     className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"

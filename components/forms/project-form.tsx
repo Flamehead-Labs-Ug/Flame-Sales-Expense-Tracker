@@ -21,7 +21,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ProjectExpenseCategoriesForm } from '@/components/forms/project-expense-categories-form';
-import { ProjectCategoryPresetsPanel } from '@/components/forms/project-category-presets-panel';
 
 interface Project {
   id: number;
@@ -58,21 +57,6 @@ interface ExpenseCategory {
 interface CurrencyOption {
   code: string;
   name: string;
-}
-
-interface ExpenseCategoryPreset {
-  id: number;
-  name: string;
-  description?: string;
-  sort_order?: number;
-}
-
-interface ProjectCategoryPreset {
-  id: number;
-  name: string;
-  description?: string;
-  sort_order?: number;
-  expense_presets: ExpenseCategoryPreset[];
 }
 
 interface ProjectFormData {
@@ -120,17 +104,38 @@ export function ProjectForm({
     currency_code: '',
   });
 
-  const [categoryPresets, setCategoryPresets] = useState<ProjectCategoryPreset[]>([]);
-  const [selectedPresetIds, setSelectedPresetIds] = useState<number[]>([]);
-  const [loadingPresets, setLoadingPresets] = useState(false);
-  const [applyingPresets, setApplyingPresets] = useState(false);
-
   const [pendingProjectCategoryId, setPendingProjectCategoryId] = useState<number | null>(null);
   const [pendingExpenseCategoryId, setPendingExpenseCategoryId] = useState<number | null>(null);
   const [newlyCreatedCategoryIds, setNewlyCreatedCategoryIds] = useState<{ projectCategoryIds: number[], expenseCategoryIds: number[] }>({ projectCategoryIds: [], expenseCategoryIds: [] });
 
   const [currencyOptions, setCurrencyOptions] = useState<CurrencyOption[]>([]);
   const [currencyManuallySet, setCurrencyManuallySet] = useState(false);
+
+  const ensureDefaultCategoriesForOrganization = async (organizationId: string) => {
+    const orgIdNum = parseInt(organizationId, 10);
+    if (!Number.isFinite(orgIdNum)) return;
+
+    const presetsRes = await fetch('/api/v1/category-presets');
+    const presetsData = await presetsRes.json();
+    if (presetsData.status !== 'success' || !Array.isArray(presetsData.presets)) {
+      return;
+    }
+
+    const presetIds = (presetsData.presets as { id: number }[])
+      .map((p) => p.id)
+      .filter((n) => Number.isFinite(n));
+
+    if (presetIds.length === 0) return;
+
+    await fetch('/api/v1/category-presets/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectCategoryPresetIds: presetIds,
+        project_id: null,
+      }),
+    });
+  };
 
   const reloadCategories = async () => {
     try {
@@ -146,32 +151,40 @@ export function ProjectForm({
       const projectData = await projectRes.json();
       const expenseData = await expenseRes.json();
 
-      if (projectData.status === 'success') {
-        setProjectCategories(projectData.categories || []);
+      const incomingProjectCategories = projectData.status === 'success'
+        ? (projectData.categories || [])
+        : [];
+
+      const incomingExpenseCategories = expenseData.status === 'success'
+        ? (expenseData.categories || [])
+        : [];
+
+      // Ensure defaults exist for the selected organization (org-shared categories)
+      // so the dropdown has defaults and users can add custom only.
+      if (incomingProjectCategories.length === 0 && formData.organization_id) {
+        try {
+          await ensureDefaultCategoriesForOrganization(formData.organization_id);
+          const [projectRes2, expenseRes2] = await Promise.all([
+            fetch(projectCategoriesUrl),
+            fetch(expenseCategoriesUrl),
+          ]);
+          const projectData2 = await projectRes2.json();
+          const expenseData2 = await expenseRes2.json();
+          if (projectData2.status === 'success') {
+            setProjectCategories(projectData2.categories || []);
+          }
+          if (expenseData2.status === 'success') {
+            setExpenseCategories(expenseData2.categories || []);
+          }
+          return;
+        } catch {
+        }
       }
-      if (expenseData.status === 'success') {
-        setExpenseCategories(expenseData.categories || []);
-      }
+
+      setProjectCategories(incomingProjectCategories);
+      setExpenseCategories(incomingExpenseCategories);
     } catch (error) {
       toast.error('Failed to refresh categories');
-    }
-  };
-
-  const loadCategoryPresets = async () => {
-    try {
-      setLoadingPresets(true);
-      const response = await fetch('/api/v1/category-presets');
-      const data = await response.json();
-
-      if (data.status === 'success' && Array.isArray(data.presets)) {
-        setCategoryPresets(data.presets as ProjectCategoryPreset[]);
-      } else {
-        setCategoryPresets([]);
-      }
-    } catch (error) {
-      toast.error('Failed to load recommended categories');
-    } finally {
-      setLoadingPresets(false);
     }
   };
 
@@ -239,6 +252,12 @@ export function ProjectForm({
     }
   }, [editingProject, selectedOrganizationId]);
 
+  useEffect(() => {
+    if (!editingProject && formData.organization_id) {
+      reloadCategories();
+    }
+  }, [editingProject, formData.organization_id]);
+
   // Auto-default project currency from selected organization's currency
   useEffect(() => {
     if (!formData.organization_id || currencyManuallySet) {
@@ -258,13 +277,7 @@ export function ProjectForm({
     ? parseInt(formData.project_category_id, 10)
     : null;
 
-  const visibleProjectCategories = !editingProject
-    ? newlyCreatedCategoryIds.projectCategoryIds.length > 0
-      ? projectCategories.filter((category) =>
-          newlyCreatedCategoryIds.projectCategoryIds.includes(category.id),
-        )
-      : []
-    : projectCategories;
+  const visibleProjectCategories = projectCategories;
 
   const filteredExpenseCategories = expenseCategories.filter((category) => {
     if (!selectedProjectCategoryId) {
@@ -301,12 +314,6 @@ export function ProjectForm({
   }, [pendingExpenseCategoryId, expenseCategories]);
 
   useEffect(() => {
-    if (showProjectCategoryWizard) {
-      loadCategoryPresets();
-    }
-  }, [showProjectCategoryWizard]);
-
-  useEffect(() => {
     if (!formData.expense_category_id) {
       return;
     }
@@ -320,82 +327,6 @@ export function ProjectForm({
       setFormData((prev) => ({ ...prev, expense_category_id: '' }));
     }
   }, [formData.expense_category_id, filteredExpenseCategories]);
-
-  const handleTogglePreset = (id: number) => {
-    setSelectedPresetIds((prev) =>
-      prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id],
-    );
-  };
-
-  const handleApplyPresets = async () => {
-    if (selectedPresetIds.length === 0) {
-      toast.error('Select at least one recommended project category');
-      return;
-    }
-
-    try {
-      setApplyingPresets(true);
-      const response = await fetch('/api/v1/category-presets/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          projectCategoryPresetIds: selectedPresetIds,
-          project_id: editingProject ? editingProject.id : null,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.status === 'success') {
-        const newProjects = (data.projectCategories || []) as ProjectCategory[];
-        const newExpenses = (data.expenseCategories || []) as ExpenseCategory[];
-
-        setProjectCategories((prev) => [...prev, ...newProjects]);
-        setExpenseCategories((prev) => [...prev, ...newExpenses]);
-
-        // For a new project, track these IDs so the dropdown only shows
-        // categories created in this session (project-specific setup UX)
-        if (!editingProject) {
-          setNewlyCreatedCategoryIds((prev) => ({
-            projectCategoryIds: [
-              ...prev.projectCategoryIds,
-              ...newProjects.map((p) => p.id),
-            ],
-            expenseCategoryIds: [
-              ...prev.expenseCategoryIds,
-              ...newExpenses.map((e) => e.id),
-            ],
-          }));
-        }
-
-        // Auto-select the first new project category and a matching expense category if available
-        if (newProjects.length > 0) {
-          const firstProject = newProjects[0];
-          const matchingNewExpense = newExpenses.find(
-            (e) => e.project_category_id === firstProject.id,
-          );
-
-          setFormData((prev) => ({
-            ...prev,
-            project_category_id: firstProject.id.toString(),
-            expense_category_id: matchingNewExpense
-              ? matchingNewExpense.id.toString()
-              : prev.expense_category_id,
-          }));
-        }
-
-        toast.success('Categories created from recommended options');
-        setSelectedPresetIds([]);
-        setShowProjectCategoryWizard(false);
-      } else {
-        toast.error(data.message || 'Failed to apply recommended categories');
-      }
-    } catch (error) {
-      toast.error('Failed to apply recommended categories');
-    } finally {
-      setApplyingPresets(false);
-    }
-  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -534,7 +465,6 @@ export function ProjectForm({
         onOpenChange={(open) => {
           setShowProjectCategoryWizard(open);
           if (!open) {
-            setSelectedPresetIds([]);
             setShowCustomCategoryFormInWizard(false);
           }
         }}
@@ -546,63 +476,35 @@ export function ProjectForm({
             </DialogTitle>
           </DialogHeader>
           <div className="mt-2">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-3 md:col-span-1">
-                <ProjectCategoryPresetsPanel
-                  presets={categoryPresets}
-                  loading={loadingPresets}
-                  selectedPresetIds={selectedPresetIds}
-                  applying={applyingPresets}
-                  onTogglePreset={handleTogglePreset}
-                  onClearSelection={() => setSelectedPresetIds([])}
-                  onUseSelected={handleApplyPresets}
-                  onAddCustomCategory={() =>
-                    setShowCustomCategoryFormInWizard(true)
-                  }
-                />
-              </div>
-
-              <div className="border-t md:border-t-0 md:border-l border-border pt-4 md:pt-0 md:pl-4 md:col-span-2">
-                {showCustomCategoryFormInWizard ? (
-                  <>
-                    <h3 className="mb-2 text-sm font-medium text-foreground">
-                      Create a custom project category and its expense categories
-                    </h3>
-                    <ProjectExpenseCategoriesForm
-                      projectId={editingProject ? editingProject.id : null}
-                      onSuccess={async () => {
-                        setShowProjectCategoryWizard(false);
-                        setShowCustomCategoryFormInWizard(false);
-                        await reloadCategories();
-                      }}
-                      onCancel={() => {
-                        setShowProjectCategoryWizard(false);
-                        setShowCustomCategoryFormInWizard(false);
-                      }}
-                      onCreatedProjectCategory={(id) => {
-                        setPendingProjectCategoryId(id);
-                        if (!editingProject) {
-                          setNewlyCreatedCategoryIds(prev => ({ ...prev, projectCategoryIds: [...prev.projectCategoryIds, id] }));
-                        }
-                      }}
-                      onCreatedExpenseCategories={(ids) => {
-                        if (ids.length > 0) {
-                          setPendingExpenseCategoryId(ids[0]);
-                        }
-                        if (!editingProject) {
-                          setNewlyCreatedCategoryIds(prev => ({ ...prev, expenseCategoryIds: [...prev.expenseCategoryIds, ...ids] }));
-                        }
-                      }}
-                    />
-                  </>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Or choose &quot;Add custom category&quot; on the left to define your own
-                    project and expense categories.
-                  </p>
-                )}
-              </div>
-            </div>
+            <h3 className="mb-2 text-sm font-medium text-foreground">
+              Create a custom project category and its expense categories
+            </h3>
+            <ProjectExpenseCategoriesForm
+              projectId={editingProject ? editingProject.id : null}
+              onSuccess={async () => {
+                setShowProjectCategoryWizard(false);
+                setShowCustomCategoryFormInWizard(false);
+                await reloadCategories();
+              }}
+              onCancel={() => {
+                setShowProjectCategoryWizard(false);
+                setShowCustomCategoryFormInWizard(false);
+              }}
+              onCreatedProjectCategory={(id) => {
+                setPendingProjectCategoryId(id);
+                if (!editingProject) {
+                  setNewlyCreatedCategoryIds(prev => ({ ...prev, projectCategoryIds: [...prev.projectCategoryIds, id] }));
+                }
+              }}
+              onCreatedExpenseCategories={(ids) => {
+                if (ids.length > 0) {
+                  setPendingExpenseCategoryId(ids[0]);
+                }
+                if (!editingProject) {
+                  setNewlyCreatedCategoryIds(prev => ({ ...prev, expenseCategoryIds: [...prev.expenseCategoryIds, ...ids] }));
+                }
+              }}
+            />
           </div>
         </DialogContent>
       </Dialog>
@@ -644,8 +546,10 @@ export function ProjectForm({
                 Project Category *
               </label>
               <div className="group relative">
-                <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                  <Info className="w-3.5 h-3.5" />
+                </div>
+                <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                   Group this project under a project category (e.g., &#34;Construction&#34;, &#34;Retail&#34;,
                   &#34;Services&#34;)
                 </div>
@@ -724,8 +628,10 @@ export function ProjectForm({
                   Expense Category *
                 </label>
                 <div className="group relative">
-                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                  <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                    <Info className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                     Category for your expenses (e.g., &quot;Office Supplies&quot;, &quot;Travel&quot;,
                     &quot;Equipment&quot;)
                   </div>
@@ -761,8 +667,10 @@ export function ProjectForm({
                 Organization *
               </label>
               <div className="group relative">
-                <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                <div className="hidden md:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                <div className="inline-flex items-center justify-center w-5 h-5 rounded border border-border bg-background text-muted-foreground">
+                  <Info className="w-3.5 h-3.5" />
+                </div>
+                <div className="hidden md:block pointer-events-none absolute bottom-full left-0 mb-2 px-2 py-1 text-xs text-primary-foreground bg-primary rounded opacity-0 group-hover:opacity-100 transition-opacity max-w-xs whitespace-normal z-50">
                   Select the organization this project belongs to
                 </div>
               </div>

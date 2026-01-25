@@ -97,28 +97,64 @@ export async function POST(request: NextRequest) {
     const createdProjectCategories: any[] = []
     const createdExpenseCategories: any[] = []
 
-    for (const preset of presetsResult.rows) {
-      const projectInsert = await db.query(
-        `INSERT INTO public.project_categories (category_name, description, organization_id, is_custom, project_id)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING *`,
-        [preset.name, preset.description || null, orgId, 0, project_id || null]
-      )
+    await db.query('BEGIN');
 
-      const projectCategory = projectInsert.rows[0]
-      createdProjectCategories.push(projectCategory)
+    for (const preset of presetsResult.rows) {
+      const existingProjectCategoryRes = await db.query(
+        `SELECT *
+           FROM public.project_categories
+          WHERE organization_id = $1
+            AND project_id IS NOT DISTINCT FROM $2
+            AND category_name = $3
+            AND COALESCE(is_custom, 0) = 0
+          ORDER BY id
+          LIMIT 1`,
+        [orgId, project_id ?? null, preset.name],
+      );
+
+      let projectCategory = existingProjectCategoryRes.rows[0];
+
+      if (!projectCategory) {
+        const projectInsert = await db.query(
+          `INSERT INTO public.project_categories (category_name, description, organization_id, is_custom, project_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING *`,
+          [preset.name, preset.description || null, orgId, 0, project_id ?? null]
+        )
+
+        projectCategory = projectInsert.rows[0]
+        createdProjectCategories.push(projectCategory)
+      }
 
       const expensePresets = expensePresetsByPresetId[preset.id] || []
       for (const expPreset of expensePresets) {
+        const existingExpenseRes = await db.query(
+          `SELECT *
+             FROM public.expense_category
+            WHERE organization_id = $1
+              AND project_id IS NOT DISTINCT FROM $2
+              AND project_category_id = $3
+              AND category_name = $4
+            ORDER BY id
+            LIMIT 1`,
+          [orgId, project_id ?? null, projectCategory.id, expPreset.name],
+        );
+
+        if (existingExpenseRes.rows[0]) {
+          continue;
+        }
+
         const expenseInsert = await db.query(
           `INSERT INTO public.expense_category (category_name, description, project_category_id, organization_id, project_id)
            VALUES ($1, $2, $3, $4, $5)
            RETURNING *`,
-          [expPreset.name, expPreset.description || null, projectCategory.id, orgId, project_id || null]
+          [expPreset.name, expPreset.description || null, projectCategory.id, orgId, project_id ?? null]
         )
         createdExpenseCategories.push(expenseInsert.rows[0])
       }
     }
+
+    await db.query('COMMIT');
 
     return NextResponse.json({
       status: 'success',
@@ -126,6 +162,10 @@ export async function POST(request: NextRequest) {
       expenseCategories: createdExpenseCategories,
     })
   } catch (error) {
+    try {
+      await db.query('ROLLBACK');
+    } catch {
+    }
     console.error('Error applying category presets:', error)
     return NextResponse.json(
       {

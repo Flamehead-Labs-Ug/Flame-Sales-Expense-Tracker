@@ -9,6 +9,17 @@ import { DialogFooter } from '@/components/ui/dialog';
 import { useFilter } from '@/lib/context/filter-context';
 import { Switcher } from '@/components/ui/shadcn-io/navbar-12/Switcher';
 
+interface InventoryVariantOption {
+  id: number;
+  product_id: number;
+  product_name: string;
+  label?: string;
+  unit_cost?: number;
+  selling_price?: number;
+  quantity_in_stock: number;
+  unit_of_measurement?: string;
+}
+
 // Interfaces from expenses/page.tsx - consider moving to a shared types file
 interface Expense {
   id: number;
@@ -165,6 +176,14 @@ export function ExpenseForm({
     const [showNewCategoryForm, setShowNewCategoryForm] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
 
+    const INVENTORY_PURCHASE_CATEGORY_NAME = 'Product/ Inventory / Stock Purchases';
+    const [inventoryProducts, setInventoryProducts] = useState<InventoryVariantOption[]>([]);
+    const [inventorySelectedProductName, setInventorySelectedProductName] = useState('');
+    const [inventoryAvailableVariants, setInventoryAvailableVariants] = useState<InventoryVariantOption[]>([]);
+    const [inventoryVariantId, setInventoryVariantId] = useState('');
+    const [inventoryQuantity, setInventoryQuantity] = useState('');
+    const [inventoryUnitCost, setInventoryUnitCost] = useState('');
+
     const addExpenseItem = () => {
         setExpenseItems([...expenseItems, { expense_name: '', description: '', amount: '', expense_date: '' }]);
     };
@@ -189,6 +208,78 @@ export function ExpenseForm({
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const { currentCurrencyCode } = useFilter();
+
+    const selectedCategory = formData.category_id
+      ? categories.find((c) => c.id === parseInt(formData.category_id, 10))
+      : undefined;
+    const isInventoryPurchase = selectedCategory?.category_name === INVENTORY_PURCHASE_CATEGORY_NAME;
+
+    useEffect(() => {
+      const loadProducts = async () => {
+        try {
+          const response = await fetch('/api/v1/products');
+          const data = await response.json();
+          if (data.status === 'success') {
+            const rawProducts = data.products || [];
+            const flattened: InventoryVariantOption[] = [];
+
+            for (const p of rawProducts) {
+              const variants = Array.isArray(p.variants) ? p.variants : [];
+
+              if (variants.length > 0) {
+                for (const v of variants) {
+                  flattened.push({
+                    id: v.id,
+                    product_id: p.id,
+                    product_name: p.product_name,
+                    label: v.label || undefined,
+                    unit_cost: v.unit_cost ?? undefined,
+                    selling_price: v.selling_price ?? undefined,
+                    quantity_in_stock: v.quantity_in_stock ?? 0,
+                    unit_of_measurement: v.unit_of_measurement || undefined,
+                  });
+                }
+              } else {
+                flattened.push({
+                  id: p.id,
+                  product_id: p.id,
+                  product_name: p.product_name,
+                  label: p.variant_name || undefined,
+                  unit_cost: p.unit_cost ?? undefined,
+                  selling_price: p.selling_price ?? undefined,
+                  quantity_in_stock: p.quantity_in_stock ?? 0,
+                  unit_of_measurement: p.unit_of_measurement || undefined,
+                });
+              }
+            }
+
+            setInventoryProducts(flattened);
+          }
+        } catch {
+          // Silent: inventory purchase UI is optional
+        }
+      };
+
+      if (isInventoryPurchase && inventoryProducts.length === 0) {
+        void loadProducts();
+      }
+    }, [isInventoryPurchase, inventoryProducts.length]);
+
+    useEffect(() => {
+      if (!isInventoryPurchase) {
+        setInventorySelectedProductName('');
+        setInventoryAvailableVariants([]);
+        setInventoryVariantId('');
+        setInventoryQuantity('');
+        setInventoryUnitCost('');
+        return;
+      }
+
+      // Inventory purchase is single-line; keep exactly one item
+      if (expenseItems.length !== 1) {
+        setExpenseItems([{ expense_name: '', description: '', amount: '', expense_date: '' }]);
+      }
+    }, [isInventoryPurchase]);
 
     const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files ? e.target.files[0] : null;
@@ -586,21 +677,56 @@ export function ExpenseForm({
         try {
             setIsSubmitting(true);
 
+            const inventoryPayload = isInventoryPurchase
+              ? {
+                  product_id: inventoryVariantId
+                    ? parseInt(
+                        (inventoryProducts.find((p) => p.id === parseInt(inventoryVariantId, 10))?.product_id || 0).toString(),
+                        10,
+                      )
+                    : null,
+                  variant_id: inventoryVariantId ? parseInt(inventoryVariantId, 10) : null,
+                  inventory_quantity: inventoryQuantity ? parseInt(inventoryQuantity, 10) : null,
+                  inventory_unit_cost: inventoryUnitCost ? parseFloat(inventoryUnitCost) : null,
+                }
+              : {};
+
+            if (isInventoryPurchase) {
+              const qty = parseInt(inventoryQuantity || '0', 10) || 0;
+              const unitCost = parseFloat(inventoryUnitCost || '0') || 0;
+              if (!inventoryVariantId) {
+                toast.error('Please select a product variant.');
+                return;
+              }
+              if (qty <= 0) {
+                toast.error('Please enter a quantity greater than 0.');
+                return;
+              }
+              if (unitCost <= 0) {
+                toast.error('Please enter a unit cost greater than 0.');
+                return;
+              }
+            }
+
             if (editingExpense) {
                 // Handle updating a single expense
                 const item = expenseItems[0];
                 const description = item.description || item.expense_name;
+                const computedAmount = isInventoryPurchase
+                  ? ((parseInt(inventoryQuantity || '0', 10) || 0) * (parseFloat(inventoryUnitCost || '0') || 0))
+                  : parseFloat(item.amount);
                 const body = {
                     id: editingExpense.id,
                     expense_name: item.expense_name,
                     description,
-                    amount: parseFloat(item.amount),
+                    amount: computedAmount,
                     expense_date: item.expense_date,
                     project_id: formData.project_id ? parseInt(formData.project_id) : null,
                     category_id: formData.category_id ? parseInt(formData.category_id) : null,
                     vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : null,
                     payment_method_id: formData.payment_method_id ? parseInt(formData.payment_method_id) : null,
                     cycle_id: formData.cycle_id ? parseInt(formData.cycle_id) : null,
+                    ...inventoryPayload,
                 };
                 const response = await fetch('/api/v1/expenses', {
                     method: 'PUT',
@@ -612,18 +738,26 @@ export function ExpenseForm({
                 toast.success('Expense updated successfully');
             } else {
                 // Handle creating multiple new expenses
+                if (isInventoryPurchase && expenseItems.length !== 1) {
+                  toast.error('Inventory purchases must be recorded as a single expense line.');
+                  return;
+                }
                 const creationPromises = expenseItems.map(item => {
                     const description = item.description || item.expense_name;
+                    const computedAmount = isInventoryPurchase
+                      ? ((parseInt(inventoryQuantity || '0', 10) || 0) * (parseFloat(inventoryUnitCost || '0') || 0))
+                      : parseFloat(item.amount);
                     const body = {
                         expense_name: item.expense_name,
                         description,
-                        amount: parseFloat(item.amount),
+                        amount: computedAmount,
                         expense_date: item.expense_date,
                         project_id: formData.project_id ? parseInt(formData.project_id) : null,
                         category_id: formData.category_id ? parseInt(formData.category_id) : null,
                         vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : null,
                         payment_method_id: formData.payment_method_id ? parseInt(formData.payment_method_id) : null,
                         cycle_id: formData.cycle_id ? parseInt(formData.cycle_id) : null,
+                        ...inventoryPayload,
                     };
                     return fetch('/api/v1/expenses', {
                         method: 'POST',
@@ -921,6 +1055,99 @@ export function ExpenseForm({
                         {/* Right Column */}
                         <div className="w-full lg:w-[55%] space-y-4">
                             <h3 className="text-lg font-medium text-foreground">Expense Items</h3>
+
+                            {isInventoryPurchase && (
+                              <div className="space-y-4 rounded-md border border-border p-4 bg-card">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-sm font-medium text-foreground">Product</label>
+                                    <Switcher
+                                      items={inventoryProducts
+                                        .filter((p, index, self) => self.findIndex(sp => sp.product_name === p.product_name) === index)
+                                        .map((p) => ({ value: p.product_name, label: p.product_name }))}
+                                      value={inventorySelectedProductName}
+                                      onChange={(value) => {
+                                        setInventorySelectedProductName(value);
+                                        const variants = inventoryProducts.filter((p) => p.product_name === value);
+                                        setInventoryAvailableVariants(variants);
+                                        setInventoryVariantId('');
+                                        setInventoryQuantity('');
+                                        setInventoryUnitCost('');
+                                      }}
+                                      placeholder="Select product"
+                                      searchPlaceholder="Search product..."
+                                      emptyText="No products found."
+                                      widthClassName="w-full"
+                                      allowClear={false}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-foreground">Variant</label>
+                                    <Switcher
+                                      items={inventoryAvailableVariants.map((v) => ({
+                                        value: v.id.toString(),
+                                        label: v.label
+                                          ? `${v.label}${v.unit_of_measurement ? ` (${v.unit_of_measurement})` : ''}`
+                                          : 'Default variant',
+                                      }))}
+                                      value={inventoryVariantId}
+                                      onChange={(value) => {
+                                        setInventoryVariantId(value);
+                                        const variant = inventoryProducts.find((p) => p.id === parseInt(value, 10));
+                                        setInventoryUnitCost((variant?.unit_cost ?? 0).toString());
+                                      }}
+                                      disabled={inventoryAvailableVariants.length === 0}
+                                      placeholder="Select variant"
+                                      searchPlaceholder="Search variant..."
+                                      emptyText="No variants found."
+                                      widthClassName="w-full"
+                                      allowClear={false}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-foreground">Quantity Purchased</label>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      value={inventoryQuantity}
+                                      onChange={(e) => setInventoryQuantity(e.target.value)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-foreground">
+                                      {currentCurrencyCode
+                                        ? `Unit Cost (${currentCurrencyCode})`
+                                        : 'Unit Cost'}
+                                    </label>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min={0}
+                                      value={inventoryUnitCost}
+                                      onChange={(e) => setInventoryUnitCost(e.target.value)}
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-foreground">
+                                    {currentCurrencyCode
+                                      ? `Total (${currentCurrencyCode})`
+                                      : 'Total'}
+                                  </label>
+                                  <Input
+                                    value={(() => {
+                                      const qty = parseInt(inventoryQuantity || '0', 10) || 0;
+                                      const unitCost = parseFloat(inventoryUnitCost || '0') || 0;
+                                      const total = qty * unitCost;
+                                      return total ? total.toFixed(2) : '';
+                                    })()}
+                                    readOnly
+                                    className="bg-muted text-muted-foreground"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
                             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
                                 {expenseItems.map((item, index) => (
                                     <div key={index} className="space-y-4 rounded-md border border-border p-4 relative bg-card">

@@ -144,6 +144,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const orgId = searchParams.get('org_id')
+    const id = searchParams.get('id')
     
     const user = await getApiOrSessionUser(request);
     if (!user) {
@@ -181,14 +182,21 @@ export async function GET(request: NextRequest) {
 
     const result = user.role === 'admin'
       ? await db.query(
-          'SELECT * FROM projects WHERE organization_id = $1 ORDER BY project_name',
-          [organizationIdNum],
+          `
+          SELECT *
+            FROM projects
+           WHERE organization_id = $1
+             AND ($2::int IS NULL OR id = $2::int)
+           ORDER BY project_name
+          `,
+          [organizationIdNum, id ? parseInt(id, 10) : null],
         )
       : await db.query(
           `
           SELECT *
             FROM projects
            WHERE organization_id = $1
+             AND ($3::int IS NULL OR id = $3::int)
              AND id IN (
                SELECT pa.project_id
                  FROM project_assignments pa
@@ -201,8 +209,9 @@ export async function GET(request: NextRequest) {
              )
            ORDER BY project_name
           `,
-          [organizationIdNum, user.id],
+          [organizationIdNum, user.id, id ? parseInt(id, 10) : null],
         )
+    
     return NextResponse.json({ 
       status: 'success', 
       projects: result.rows 

@@ -1,6 +1,7 @@
 'use client';
- 
+
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -97,14 +98,14 @@ const createEmptyVariant = () => ({
 });
 
 function ProductsPageContent() {
-  const { selectedProject, selectedCycle, projects, setSelectedProject } = useFilter();
+  const { selectedProject, selectedCycle, projects, setSelectedProject, currentCurrencyCode } = useFilter();
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [projectCategories, setProjectCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-
 
   useEffect(() => {
     loadData();
@@ -162,6 +163,21 @@ function ProductsPageContent() {
     return matchesProject && matchesSearch;
   });
 
+  const productCount = filteredProducts.length;
+  const totalCostOfProducts = filteredProducts.reduce((sum, product) => {
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      const variantTotal = product.variants.reduce((variantSum, variant) => {
+        const unitCost = Number(variant.unit_cost) || 0;
+        const qty = Number(variant.quantity_in_stock) || 0;
+        return variantSum + unitCost * qty;
+      }, 0);
+      return sum + variantTotal;
+    }
+
+    const unitCost = Number(product.unit_cost) || 0;
+    const qty = Number(product.quantity_in_stock) || 0;
+    return sum + unitCost * qty;
+  }, 0);
 
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
@@ -196,124 +212,156 @@ function ProductsPageContent() {
   return (
     <AuthGuard>
       <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center gap-3 justify-between">
-        <h1 className="text-3xl font-bold">Products</h1>
-        <Button
-          color="primary"
-          onClick={() => {
-            if (!selectedProject) {
-              toast.error('Please select a project before creating a product');
-              return;
-            }
-            setEditingProduct(null);
-            setShowForm(true);
-          }}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Product
-        </Button>
-      </div>
-
-      <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="flex flex-wrap gap-3">
-          <select
-            className="px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
-            value={selectedProject || ''}
-            onChange={(e) => setSelectedProject(e.target.value)}
+        <div className="flex flex-wrap items-center gap-3 justify-between">
+          <h1 className="text-3xl font-bold">Products</h1>
+          <Button
+            color="primary"
+            onClick={() => {
+              if (!selectedProject) {
+                toast.error('Please select a project before creating a product');
+                return;
+              }
+              setEditingProduct(null);
+              setShowForm(true);
+            }}
           >
-            <option value="">All projects</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id.toString()}>
-                {project.project_name}
-              </option>
-            ))}
-          </select>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Product
+          </Button>
         </div>
 
-        <div className="w-full md:w-64">
-          <input
-            type="text"
-            className="w-full px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
-            placeholder="Search by product name or SKU"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
+        <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex flex-wrap gap-3">
+            <select
+              className="px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
+              value={selectedProject || ''}
+              onChange={(e) => setSelectedProject(e.target.value)}
+            >
+              <option value="">All projects</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id.toString()}>
+                  {project.project_name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
-          </DialogHeader>
-          <ProductForm 
-            editingProduct={editingProduct}
-            selectedProject={selectedProject}
-            selectedCycle={selectedCycle}
-            projects={projects}
-            onSuccess={() => {
+          <div className="w-full md:w-64">
+            <input
+              type="text"
+              className="w-full px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
+              placeholder="Search by product name or SKU"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-6">
+          <Card>
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-sm font-medium">Number of Products</CardTitle>
+              <CardDescription className="text-xs">Based on current filters</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{Number(productCount).toLocaleString()}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-sm font-medium">Total Cost of Products</CardTitle>
+              <CardDescription className="text-xs">Sum of unit cost x stock</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {currentCurrencyCode
+                  ? `${currentCurrencyCode} ${Number(totalCostOfProducts).toLocaleString()}`
+                  : Number(totalCostOfProducts).toLocaleString()}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Dialog open={showForm} onOpenChange={setShowForm}>
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+            </DialogHeader>
+            <ProductForm 
+              editingProduct={editingProduct}
+              selectedProject={selectedProject}
+              selectedCycle={selectedCycle}
+              projects={projects}
+              onSuccess={() => {
                 setShowForm(false);
                 setEditingProduct(null);
                 loadData();
-            }}
-            onCancel={() => {
+              }}
+              onCancel={() => {
                 setShowForm(false);
                 setEditingProduct(null);
-            }}
-          />
-        </DialogContent>
-      </Dialog>
+              }}
+            />
+          </DialogContent>
+        </Dialog>
 
-      <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredProducts.map((product) => (
-            <Card key={product.id}>
-              <CardHeader className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-lg font-semibold">
-                    {product.product_name}
-                  </CardTitle>
-                  {product.sku && (
-                    <span className="px-2 py-1 text-xs bg-muted text-foreground rounded">
-                      SKU: {product.sku}
-                    </span>
+        <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredProducts.map((product) => (
+              <Card key={product.id}>
+                <CardHeader className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-lg font-semibold">
+                      {product.product_name}
+                    </CardTitle>
+                    {product.sku && (
+                      <span className="px-2 py-1 text-xs bg-muted text-foreground rounded">
+                        SKU: {product.sku}
+                      </span>
+                    )}
+                    {product.variants && product.variants.length > 0 && (
+                      <span className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded">
+                        {product.variants.length} variant{product.variants.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                  {product.description && (
+                    <CardDescription className="text-xs text-muted-foreground">
+                      {product.description}
+                    </CardDescription>
                   )}
-                  {product.variants && product.variants.length > 0 && (
-                    <span className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded">
-                      {product.variants.length} variant{product.variants.length > 1 ? 's' : ''}
-                    </span>
-                  )}
-                </div>
-                {product.description && (
-                  <CardDescription className="text-xs text-muted-foreground">
-                    {product.description}
-                  </CardDescription>
-                )}
-              </CardHeader>
-              <CardContent className="px-6 py-0" />
-              <CardFooter className="flex justify-end gap-2 px-6 pb-4 pt-3">
-                <button 
-                  onClick={() => handleEdit(product)}
-                  className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
-                >
-                  Edit
-                </button>
-                <button 
-                  onClick={() => handleDelete(product.id)}
-                  className="inline-flex items-center px-3 py-1.5 border border-destructive/40 text-sm font-medium rounded-md text-destructive bg-background hover:bg-destructive/10"
-                >
-                  Delete
-                </button>
-              </CardFooter>
-            </Card>
-          ))}
-          {filteredProducts.length === 0 && (
-            <div className="col-span-full bg-card rounded-lg border border-border p-8 text-center text-muted-foreground">
-              No products found. Create your first product to get started.
-            </div>
-          )}
+                </CardHeader>
+                <CardContent className="px-6 py-0" />
+                <CardFooter className="flex justify-end gap-2 px-6 pb-4 pt-3">
+                  <button 
+                    onClick={() => router.push(`/products/${product.id}`)}
+                    className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
+                  >
+                    View
+                  </button>
+                  <button 
+                    onClick={() => handleEdit(product)}
+                    className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
+                  >
+                    Edit
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(product.id)}
+                    className="inline-flex items-center px-3 py-1.5 border border-destructive/40 text-sm font-medium rounded-md text-destructive bg-background hover:bg-destructive/10"
+                  >
+                    Delete
+                  </button>
+                </CardFooter>
+              </Card>
+            ))}
+            {filteredProducts.length === 0 && (
+              <div className="col-span-full bg-card rounded-lg border border-border p-8 text-center text-muted-foreground">
+                No products found. Create your first product to get started.
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       </div>
     </AuthGuard>
   );

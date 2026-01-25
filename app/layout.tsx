@@ -3,15 +3,10 @@ import { Suspense, type ReactNode } from 'react'
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { stackClientApp } from "../stack/client";
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
 import { AppShell } from '@/components/app-shell'
 import { ThemeProvider } from '@/components/theme-provider'
-import { CopilotKit } from '@copilotkit/react-core'
-import '@copilotkit/react-ui/styles.css'
 // Removed NextAuth SessionProviderComponent as NextAuth has been removed from the application
 // import SessionProviderComponent from '@/components/session-provider'
-
-const inter = Inter({ subsets: ['latin'] })
 
 const rawSiteUrl = process.env.NEXT_PUBLIC_SITE_URL
 const siteUrl = rawSiteUrl
@@ -110,7 +105,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -120,9 +115,7 @@ export default function RootLayout({
           <StackProvider app={stackClientApp}>
             <StackTheme>
               <Suspense fallback={null}>
-                <CopilotKit runtimeUrl="/api/v1/copilotkit" agent="Flame">
-                  <AppShell>{children}</AppShell>
-                </CopilotKit>
+                <AppShell>{children}</AppShell>
               </Suspense>
             </StackTheme>
           </StackProvider>

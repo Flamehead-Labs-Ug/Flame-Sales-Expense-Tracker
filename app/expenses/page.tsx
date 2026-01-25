@@ -230,6 +230,28 @@ function ExpensesPageContent() {
   const remainingBudget = summary
     ? summary.totalBudgetAllotment - summary.totalExpenses
     : 0;
+  const cogsProjectCategoryId = projectCategories.find(
+    (pc) => (pc.category_name || '').trim().toLowerCase() === 'cogs',
+  )?.id;
+  const operatingExpensesProjectCategoryId = projectCategories.find(
+    (pc) => (pc.category_name || '').trim().toLowerCase() === 'operating expenses',
+  )?.id;
+
+  const totalCogs = expenses.reduce((sum, expense) => {
+    if (!cogsProjectCategoryId) return sum;
+    const category = categories.find((c) => c.id === expense.category_id);
+    if (!category) return sum;
+    if ((category.project_category_id ?? null) !== cogsProjectCategoryId) return sum;
+    return sum + (Number(expense.amount) || 0);
+  }, 0);
+
+  const totalOperatingExpenses = expenses.reduce((sum, expense) => {
+    if (!operatingExpensesProjectCategoryId) return sum;
+    const category = categories.find((c) => c.id === expense.category_id);
+    if (!category) return sum;
+    if ((category.project_category_id ?? null) !== operatingExpensesProjectCategoryId) return sum;
+    return sum + (Number(expense.amount) || 0);
+  }, 0);
   const currencyLabel = currentCurrencyCode || '';
 
   if (loading) {
@@ -269,7 +291,7 @@ function ExpensesPageContent() {
 
         <div className="flex-1 overflow-y-auto space-y-6 pr-2">
         {summary && (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
                 <CardTitle className="text-sm font-medium">Budget Allotment</CardTitle>
@@ -298,6 +320,34 @@ function ExpensesPageContent() {
 
             <Card>
               <CardHeader className="space-y-1 p-3 pb-2 sm:p-6 sm:pb-2">
+                <CardTitle className="text-sm font-medium">Total Cost of Goods for Sale (COGS)</CardTitle>
+                <CardDescription className="text-xs">Expenses under COGS project category</CardDescription>
+              </CardHeader>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <div className="text-xl font-bold text-red-600 sm:text-2xl">
+                  {currencyLabel
+                    ? `${currencyLabel} ${Number(totalCogs ?? 0).toLocaleString()}`
+                    : Number(totalCogs ?? 0).toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="space-y-1 p-3 pb-2 sm:p-6 sm:pb-2">
+                <CardTitle className="text-sm font-medium">Total Operating Expenses</CardTitle>
+                <CardDescription className="text-xs">Expenses under Operating Expenses project category</CardDescription>
+              </CardHeader>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <div className="text-xl font-bold text-red-600 sm:text-2xl">
+                  {currencyLabel
+                    ? `${currencyLabel} ${Number(totalOperatingExpenses ?? 0).toLocaleString()}`
+                    : Number(totalOperatingExpenses ?? 0).toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="space-y-1 p-3 pb-2 sm:p-6 sm:pb-2">
                 <CardTitle className="text-sm font-medium">Remaining Spend</CardTitle>
                 <CardDescription className="text-xs">Budget - Expenses</CardDescription>
               </CardHeader>
@@ -311,7 +361,6 @@ function ExpensesPageContent() {
             </Card>
           </div>
         )}
-
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             type="text"

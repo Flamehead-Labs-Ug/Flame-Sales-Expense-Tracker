@@ -133,15 +133,36 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'API key required' }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const idParam = searchParams.get('id');
+
     if (!user.organizationId) {
       return NextResponse.json({ status: 'success', organizations: [] });
     }
 
     const userOrgId = user.organizationId;
+    const requestedId = idParam ? parseInt(idParam, 10) : null;
+
+    if (requestedId && requestedId !== userOrgId) {
+      if (user.role !== 'admin') {
+        return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
+      }
+
+      const orgCheck = await db.query(
+        'SELECT id FROM organizations WHERE id = $1 AND created_by = $2',
+        [requestedId, user.id],
+      );
+
+      if (!orgCheck.rows.length) {
+        return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    const targetId = requestedId || userOrgId;
 
     const result = await db.query(
       'SELECT id, name, created_at, country_code, currency_code, currency_symbol FROM organizations WHERE id = $1',
-      [userOrgId]
+      [targetId]
     );
 
     return NextResponse.json({

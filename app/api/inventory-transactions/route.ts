@@ -74,6 +74,8 @@ export async function POST(request: NextRequest) {
       unit_cost,
       notes,
       create_expense,
+      expense_id,
+      apply_stock,
       expense_category_id,
       expense_name,
       expense_date,
@@ -84,8 +86,14 @@ export async function POST(request: NextRequest) {
     } = body
 
     const safeQty = typeof quantity === 'number' ? quantity : parseInt(quantity || '0', 10) || 0
-    if (!product_id || safeQty <= 0) {
-      return NextResponse.json({ status: 'error', message: 'product_id and quantity (>0) are required' }, { status: 400 })
+    const safeApplyStock = apply_stock === undefined ? true : Boolean(apply_stock)
+
+    if (!product_id) {
+      return NextResponse.json({ status: 'error', message: 'product_id is required' }, { status: 400 })
+    }
+
+    if (safeApplyStock && safeQty <= 0) {
+      return NextResponse.json({ status: 'error', message: 'quantity (>0) is required' }, { status: 400 })
     }
 
     if (!type || typeof type !== 'string') {
@@ -113,12 +121,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!create_expense && expense_id !== undefined && expense_id !== null) {
+      const parsedExpenseId = typeof expense_id === 'number' ? expense_id : parseInt(expense_id || '0', 10)
+      if (!parsedExpenseId || parsedExpenseId <= 0) {
+        return NextResponse.json(
+          { status: 'error', message: 'expense_id must be a valid integer when provided' },
+          { status: 400 },
+        )
+      }
+    }
+
     const amount = create_expense && safeUnitCost > 0 ? safeUnitCost * safeQty : 0
     const amountOrgCcy = create_expense
       ? await computeAmountInOrgCurrency(organizationId, project_id || null, amount)
       : 0
 
-    const quantityDelta = type === 'PURCHASE' || type === 'ADJUSTMENT_IN' ? safeQty : -safeQty
+    const quantityDelta = safeApplyStock
+      ? (type === 'PURCHASE' || type === 'ADJUSTMENT_IN' ? safeQty : -safeQty)
+      : 0
+
+    const safeExpenseId = expense_id === undefined || expense_id === null
+      ? null
+      : (typeof expense_id === 'number' ? expense_id : parseInt(expense_id || '0', 10) || null)
 
     const result = await db.query(
       `
@@ -161,6 +185,9 @@ export async function POST(request: NextRequest) {
         WHERE $17::boolean = true
         RETURNING id
       ),
+      exp_id AS (
+        SELECT COALESCE((SELECT id FROM exp), $22::int) AS id
+      ),
       inv AS (
         INSERT INTO inventory_transactions (
           organization_id,
@@ -181,7 +208,7 @@ export async function POST(request: NextRequest) {
           $5::int,
           $13::int,
           $14::int,
-          (SELECT id FROM exp),
+          (SELECT id FROM exp_id),
           $18::text,
           $19::int,
           $16::numeric,
@@ -193,13 +220,13 @@ export async function POST(request: NextRequest) {
       upd_prod AS (
         UPDATE products
            SET quantity_in_stock = quantity_in_stock + $19::int
-         WHERE id = $13::int AND organization_id = $11::int
+         WHERE $23::boolean = true AND id = $13::int AND organization_id = $11::int
          RETURNING id
       ),
       upd_var AS (
         UPDATE product_variants
            SET quantity_in_stock = quantity_in_stock + $19::int
-         WHERE id = $14::int
+         WHERE $23::boolean = true AND id = $14::int
          RETURNING id
       ),
       upd_prices AS (
@@ -212,7 +239,7 @@ export async function POST(request: NextRequest) {
       )
       SELECT
         (SELECT row_to_json(inv) FROM inv) AS inventory_transaction,
-        (SELECT id FROM exp) AS expense_id
+        (SELECT id FROM exp_id) AS expense_id
       `,
       [
         project_id || null,
@@ -236,6 +263,8 @@ export async function POST(request: NextRequest) {
         quantityDelta,
         safeUpdateVariantUnitCost,
         safeUpdateVariantSellingPrice,
+        safeExpenseId,
+        safeApplyStock,
       ],
     )
 

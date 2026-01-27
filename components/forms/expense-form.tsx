@@ -18,6 +18,7 @@ interface InventoryVariantOption {
   selling_price?: number;
   quantity_in_stock: number;
   unit_of_measurement?: string;
+  is_variant: boolean;
 }
 
 // Interfaces from expenses/page.tsx - consider moving to a shared types file
@@ -31,6 +32,10 @@ interface Expense {
   expense_name?: string;
   description: string;
   amount: number;
+  product_id?: number | null;
+  variant_id?: number | null;
+  inventory_quantity?: number | null;
+  inventory_unit_cost?: number | null;
   date_time_created: string;
   created_by: number;
   created_at: string;
@@ -177,6 +182,18 @@ export function ExpenseForm({
     const [newCategoryName, setNewCategoryName] = useState('');
 
     const INVENTORY_PURCHASE_CATEGORY_NAME = 'Product/ Inventory / Stock Purchases';
+    const COGS_CATEGORY_NAMES = [
+      'Raw Materials',
+      'Product/ Inventory / Stock Purchases',
+      'Direct Labor',
+      'Production Costs',
+      'Cost of Services',
+      'Manufacturing Costs',
+      'Packaging Materials',
+      'Freight & Delivery (Inbound)',
+      'Job / Project Materials',
+      'Service Delivery Costs',
+    ];
     const [inventoryProducts, setInventoryProducts] = useState<InventoryVariantOption[]>([]);
     const [inventorySelectedProductName, setInventorySelectedProductName] = useState('');
     const [inventoryAvailableVariants, setInventoryAvailableVariants] = useState<InventoryVariantOption[]>([]);
@@ -212,6 +229,7 @@ export function ExpenseForm({
     const selectedCategory = formData.category_id
       ? categories.find((c) => c.id === parseInt(formData.category_id, 10))
       : undefined;
+    const isCogsCategory = !!selectedCategory?.category_name && COGS_CATEGORY_NAMES.includes(selectedCategory.category_name);
     const isInventoryPurchase = selectedCategory?.category_name === INVENTORY_PURCHASE_CATEGORY_NAME;
 
     useEffect(() => {
@@ -227,6 +245,17 @@ export function ExpenseForm({
               const variants = Array.isArray(p.variants) ? p.variants : [];
 
               if (variants.length > 0) {
+                flattened.push({
+                  id: 0,
+                  product_id: p.id,
+                  product_name: p.product_name,
+                  label: 'No Variant',
+                  unit_cost: p.unit_cost ?? undefined,
+                  selling_price: p.selling_price ?? undefined,
+                  quantity_in_stock: p.quantity_in_stock ?? 0,
+                  unit_of_measurement: p.unit_of_measurement || undefined,
+                  is_variant: false,
+                });
                 for (const v of variants) {
                   flattened.push({
                     id: v.id,
@@ -237,6 +266,7 @@ export function ExpenseForm({
                     selling_price: v.selling_price ?? undefined,
                     quantity_in_stock: v.quantity_in_stock ?? 0,
                     unit_of_measurement: v.unit_of_measurement || undefined,
+                    is_variant: true,
                   });
                 }
               } else {
@@ -249,6 +279,7 @@ export function ExpenseForm({
                   selling_price: p.selling_price ?? undefined,
                   quantity_in_stock: p.quantity_in_stock ?? 0,
                   unit_of_measurement: p.unit_of_measurement || undefined,
+                  is_variant: false,
                 });
               }
             }
@@ -260,13 +291,13 @@ export function ExpenseForm({
         }
       };
 
-      if (isInventoryPurchase && inventoryProducts.length === 0) {
+      if (isCogsCategory && inventoryProducts.length === 0) {
         void loadProducts();
       }
-    }, [isInventoryPurchase, inventoryProducts.length]);
+    }, [isCogsCategory, inventoryProducts.length]);
 
     useEffect(() => {
-      if (!isInventoryPurchase) {
+      if (!isCogsCategory) {
         setInventorySelectedProductName('');
         setInventoryAvailableVariants([]);
         setInventoryVariantId('');
@@ -275,11 +306,11 @@ export function ExpenseForm({
         return;
       }
 
-      // Inventory purchase is single-line; keep exactly one item
+      // COGS is product-linked; keep exactly one item
       if (expenseItems.length !== 1) {
         setExpenseItems([{ expense_name: '', description: '', amount: '', expense_date: '' }]);
       }
-    }, [isInventoryPurchase]);
+    }, [isCogsCategory]);
 
     const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files ? e.target.files[0] : null;
@@ -646,6 +677,29 @@ export function ExpenseForm({
                 expense_date: editingExpense.date_time_created ? editingExpense.date_time_created.split('T')[0] : ''
             }]);
 
+            if (editingExpense.product_id) {
+                const matching = inventoryProducts.find((p) => p.product_id === editingExpense.product_id);
+                if (matching?.product_name) {
+                    setInventorySelectedProductName(matching.product_name);
+                    const variants = inventoryProducts.filter((p) => p.product_name === matching.product_name);
+                    setInventoryAvailableVariants(variants);
+
+                    if (editingExpense.variant_id) {
+                        setInventoryVariantId(editingExpense.variant_id.toString());
+                    } else {
+                        const noVar = variants.find((v) => v.id === 0);
+                        setInventoryVariantId(noVar ? '0' : '');
+                    }
+
+                    if (editingExpense.inventory_quantity !== undefined && editingExpense.inventory_quantity !== null) {
+                        setInventoryQuantity(editingExpense.inventory_quantity.toString());
+                    }
+                    if (editingExpense.inventory_unit_cost !== undefined && editingExpense.inventory_unit_cost !== null) {
+                        setInventoryUnitCost(editingExpense.inventory_unit_cost.toString());
+                    }
+                }
+            }
+
             const cat = categories.find(c => c.id === editingExpense.category_id);
             if (cat?.project_category_id) {
                 setSelectedProjectCategoryId(cat.project_category_id.toString());
@@ -660,7 +714,7 @@ export function ExpenseForm({
                 setSelectedProjectCategoryId(project?.project_category_id?.toString() || '');
             }
         }
-    }, [editingExpense, projects, categories, initialSelectedProject]);
+    }, [editingExpense, projects, categories, initialSelectedProject, inventoryProducts]);
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
@@ -677,27 +731,33 @@ export function ExpenseForm({
         try {
             setIsSubmitting(true);
 
-            const inventoryPayload = isInventoryPurchase
+            const selectedInventoryOption = inventoryVariantId
+              ? inventoryProducts.find((p) => p.id === parseInt(inventoryVariantId, 10))
+              : undefined;
+
+            const inventoryPayload = isCogsCategory
               ? {
-                  product_id: inventoryVariantId
-                    ? parseInt(
-                        (inventoryProducts.find((p) => p.id === parseInt(inventoryVariantId, 10))?.product_id || 0).toString(),
-                        10,
-                      )
-                    : null,
-                  variant_id: inventoryVariantId ? parseInt(inventoryVariantId, 10) : null,
+                  product_id: selectedInventoryOption?.product_id ?? null,
+                  variant_id: selectedInventoryOption?.is_variant ? (selectedInventoryOption?.id ?? null) : null,
                   inventory_quantity: inventoryQuantity ? parseInt(inventoryQuantity, 10) : null,
                   inventory_unit_cost: inventoryUnitCost ? parseFloat(inventoryUnitCost) : null,
                 }
               : {};
 
+            if (isCogsCategory) {
+              if (!inventoryVariantId) {
+                toast.error('Please select a product.');
+                return;
+              }
+              if (!selectedInventoryOption?.product_id) {
+                toast.error('Please select a product.');
+                return;
+              }
+            }
+
             if (isInventoryPurchase) {
               const qty = parseInt(inventoryQuantity || '0', 10) || 0;
               const unitCost = parseFloat(inventoryUnitCost || '0') || 0;
-              if (!inventoryVariantId) {
-                toast.error('Please select a product variant.');
-                return;
-              }
               if (qty <= 0) {
                 toast.error('Please enter a quantity greater than 0.');
                 return;
@@ -709,39 +769,221 @@ export function ExpenseForm({
             }
 
             if (editingExpense) {
-                // Handle updating a single expense
                 const item = expenseItems[0];
                 const description = item.description || item.expense_name;
-                const computedAmount = isInventoryPurchase
-                  ? ((parseInt(inventoryQuantity || '0', 10) || 0) * (parseFloat(inventoryUnitCost || '0') || 0))
-                  : parseFloat(item.amount);
-                const body = {
-                    id: editingExpense.id,
-                    expense_name: item.expense_name,
-                    description,
-                    amount: computedAmount,
-                    expense_date: item.expense_date,
-                    project_id: formData.project_id ? parseInt(formData.project_id) : null,
-                    category_id: formData.category_id ? parseInt(formData.category_id) : null,
-                    vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : null,
-                    payment_method_id: formData.payment_method_id ? parseInt(formData.payment_method_id) : null,
-                    cycle_id: formData.cycle_id ? parseInt(formData.cycle_id) : null,
-                    ...inventoryPayload,
-                };
-                const response = await fetch('/api/v1/expenses', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
-                const data = await response.json();
-                if (data.status !== 'success') throw new Error(data.message || 'Failed to update expense');
-                toast.success('Expense updated successfully');
+
+                if (isInventoryPurchase) {
+                    const oldQty = editingExpense.inventory_quantity ?? 0;
+                    const newQty = parseInt(inventoryQuantity || '0', 10) || 0;
+                    const newUnitCost = parseFloat(inventoryUnitCost || '0') || 0;
+                    const oldOptionProductId = editingExpense.product_id ?? null;
+                    const oldOptionVariantId = editingExpense.variant_id ?? null;
+
+                    if (!oldOptionProductId || oldQty <= 0) {
+                        throw new Error('This stock purchase is missing inventory linkage.');
+                    }
+
+                    // 1) Reverse old stock movement (linked to same expense)
+                    await fetch('/api/v1/inventory-transactions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'REVERSAL',
+                            project_id: formData.project_id ? parseInt(formData.project_id, 10) : null,
+                            cycle_id: formData.cycle_id ? parseInt(formData.cycle_id, 10) : null,
+                            product_id: oldOptionProductId,
+                            variant_id: oldOptionVariantId,
+                            quantity: oldQty,
+                            unit_cost: editingExpense.inventory_unit_cost ?? null,
+                            notes: `Reversal for expense #${editingExpense.id}`,
+                            create_expense: false,
+                            expense_id: editingExpense.id,
+                            apply_stock: true,
+                        }),
+                    }).then(async (res) => {
+                        const data = await res.json();
+                        if (data.status !== 'success') throw new Error(data.message || 'Failed to reverse stock');
+                    });
+
+                    // 2) Update the expense row (same id)
+                    const updatedAmount = newQty * newUnitCost;
+                    const updateResponse = await fetch('/api/v1/expenses', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id: editingExpense.id,
+                            expense_name: item.expense_name,
+                            description,
+                            amount: updatedAmount,
+                            expense_date: item.expense_date,
+                            project_id: formData.project_id ? parseInt(formData.project_id) : null,
+                            category_id: formData.category_id ? parseInt(formData.category_id) : null,
+                            vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : null,
+                            payment_method_id: formData.payment_method_id ? parseInt(formData.payment_method_id) : null,
+                            cycle_id: formData.cycle_id ? parseInt(formData.cycle_id) : null,
+                            ...inventoryPayload,
+                        }),
+                    });
+                    const updateData = await updateResponse.json();
+                    if (updateData.status !== 'success') throw new Error(updateData.message || 'Failed to update expense');
+
+                    // 3) Apply new purchase stock movement (linked to same expense)
+                    await fetch('/api/v1/inventory-transactions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'PURCHASE',
+                            project_id: formData.project_id ? parseInt(formData.project_id, 10) : null,
+                            cycle_id: formData.cycle_id ? parseInt(formData.cycle_id, 10) : null,
+                            product_id: selectedInventoryOption?.product_id,
+                            variant_id: selectedInventoryOption?.is_variant ? selectedInventoryOption?.id : null,
+                            quantity: newQty,
+                            unit_cost: newUnitCost,
+                            notes: description || item.expense_name || null,
+                            create_expense: false,
+                            expense_id: editingExpense.id,
+                            apply_stock: true,
+                        }),
+                    }).then(async (res) => {
+                        const data = await res.json();
+                        if (data.status !== 'success') throw new Error(data.message || 'Failed to apply new stock purchase');
+                    });
+
+                    toast.success('Inventory purchase updated successfully');
+                } else {
+                    const computedAmount = parseFloat(item.amount);
+                    const response = await fetch('/api/v1/expenses', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id: editingExpense.id,
+                            expense_name: item.expense_name,
+                            description,
+                            amount: computedAmount,
+                            expense_date: item.expense_date,
+                            project_id: formData.project_id ? parseInt(formData.project_id) : null,
+                            category_id: formData.category_id ? parseInt(formData.category_id) : null,
+                            vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : null,
+                            payment_method_id: formData.payment_method_id ? parseInt(formData.payment_method_id) : null,
+                            cycle_id: formData.cycle_id ? parseInt(formData.cycle_id) : null,
+                            ...inventoryPayload,
+                        }),
+                    });
+                    const data = await response.json();
+                    if (data.status !== 'success') throw new Error(data.message || 'Failed to update expense');
+
+                    if (isCogsCategory) {
+                        // Log-only inventory transaction linked to this expense
+                        await fetch('/api/v1/inventory-transactions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                type: 'COGS',
+                                project_id: formData.project_id ? parseInt(formData.project_id, 10) : null,
+                                cycle_id: formData.cycle_id ? parseInt(formData.cycle_id, 10) : null,
+                                product_id: selectedInventoryOption?.product_id,
+                                variant_id: selectedInventoryOption?.is_variant ? selectedInventoryOption?.id : null,
+                                quantity: 0,
+                                unit_cost: null,
+                                notes: `COGS allocation: ${selectedCategory?.category_name || ''}`,
+                                create_expense: false,
+                                expense_id: editingExpense.id,
+                                apply_stock: false,
+                            }),
+                        });
+                    }
+
+                    toast.success('Expense updated successfully');
+                }
             } else {
                 // Handle creating multiple new expenses
-                if (isInventoryPurchase && expenseItems.length !== 1) {
-                  toast.error('Inventory purchases must be recorded as a single expense line.');
+                if ((isInventoryPurchase || isCogsCategory) && expenseItems.length !== 1) {
+                  toast.error('COGS entries must be recorded as a single expense line.');
                   return;
                 }
+
+                if (isInventoryPurchase) {
+                    const item = expenseItems[0];
+                    const qty = parseInt(inventoryQuantity || '0', 10) || 0;
+                    const unitCost = parseFloat(inventoryUnitCost || '0') || 0;
+
+                    const response = await fetch('/api/v1/inventory-transactions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'PURCHASE',
+                            project_id: formData.project_id ? parseInt(formData.project_id, 10) : null,
+                            cycle_id: formData.cycle_id ? parseInt(formData.cycle_id, 10) : null,
+                            product_id: selectedInventoryOption?.product_id,
+                            variant_id: selectedInventoryOption?.is_variant ? selectedInventoryOption?.id : null,
+                            quantity: qty,
+                            unit_cost: unitCost,
+                            notes: item.description || item.expense_name || null,
+                            create_expense: true,
+                            expense_category_id: formData.category_id ? parseInt(formData.category_id, 10) : null,
+                            expense_name: item.expense_name || 'Stock Purchase',
+                            expense_date: item.expense_date || null,
+                            vendor_id: formData.vendor_id ? parseInt(formData.vendor_id, 10) : null,
+                            payment_method_id: formData.payment_method_id ? parseInt(formData.payment_method_id, 10) : null,
+                        }),
+                    });
+
+                    const data = await response.json();
+                    if (data.status !== 'success') throw new Error(data.message || 'Failed to create inventory purchase');
+                    toast.success('Inventory purchase recorded successfully');
+                    onSuccess();
+                    return;
+                }
+
+                if (isCogsCategory) {
+                    const item = expenseItems[0];
+                    const description = item.description || item.expense_name;
+                    const computedAmount = parseFloat(item.amount);
+
+                    const createExpenseRes = await fetch('/api/v1/expenses', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            expense_name: item.expense_name,
+                            description,
+                            amount: computedAmount,
+                            expense_date: item.expense_date,
+                            project_id: formData.project_id ? parseInt(formData.project_id) : null,
+                            category_id: formData.category_id ? parseInt(formData.category_id) : null,
+                            vendor_id: formData.vendor_id ? parseInt(formData.vendor_id) : null,
+                            payment_method_id: formData.payment_method_id ? parseInt(formData.payment_method_id) : null,
+                            cycle_id: formData.cycle_id ? parseInt(formData.cycle_id) : null,
+                            ...inventoryPayload,
+                        }),
+                    });
+                    const createExpenseData = await createExpenseRes.json();
+                    if (createExpenseData.status !== 'success') throw new Error(createExpenseData.message || 'Failed to create expense');
+
+                    const createdExpense = createExpenseData.expense as Expense;
+
+                    await fetch('/api/v1/inventory-transactions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'COGS',
+                            project_id: formData.project_id ? parseInt(formData.project_id, 10) : null,
+                            cycle_id: formData.cycle_id ? parseInt(formData.cycle_id, 10) : null,
+                            product_id: selectedInventoryOption?.product_id,
+                            variant_id: selectedInventoryOption?.is_variant ? selectedInventoryOption?.id : null,
+                            quantity: 0,
+                            unit_cost: null,
+                            notes: `COGS allocation: ${selectedCategory?.category_name || ''}`,
+                            create_expense: false,
+                            expense_id: createdExpense.id,
+                            apply_stock: false,
+                        }),
+                    });
+
+                    toast.success('COGS expense recorded successfully');
+                    onSuccess();
+                    return;
+                }
+
                 const creationPromises = expenseItems.map(item => {
                     const description = item.description || item.expense_name;
                     const computedAmount = isInventoryPurchase
@@ -1056,7 +1298,7 @@ export function ExpenseForm({
                         <div className="w-full lg:w-[55%] space-y-4">
                             <h3 className="text-lg font-medium text-foreground">Expense Items</h3>
 
-                            {isInventoryPurchase && (
+                            {isCogsCategory && (
                               <div className="space-y-4 rounded-md border border-border p-4 bg-card">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                   <div>
@@ -1070,9 +1312,11 @@ export function ExpenseForm({
                                         setInventorySelectedProductName(value);
                                         const variants = inventoryProducts.filter((p) => p.product_name === value);
                                         setInventoryAvailableVariants(variants);
-                                        setInventoryVariantId('');
+                                        const noVar = variants.find((v) => v.id === 0);
+                                        const nextVariantId = !isInventoryPurchase && noVar ? '0' : '';
+                                        setInventoryVariantId(nextVariantId);
                                         setInventoryQuantity('');
-                                        setInventoryUnitCost('');
+                                        setInventoryUnitCost(!isInventoryPurchase && noVar ? ((noVar.unit_cost ?? 0).toString()) : '');
                                       }}
                                       placeholder="Select product"
                                       searchPlaceholder="Search product..."
@@ -1094,7 +1338,9 @@ export function ExpenseForm({
                                       onChange={(value) => {
                                         setInventoryVariantId(value);
                                         const variant = inventoryProducts.find((p) => p.id === parseInt(value, 10));
-                                        setInventoryUnitCost((variant?.unit_cost ?? 0).toString());
+                                        if (isInventoryPurchase) {
+                                          setInventoryUnitCost((variant?.unit_cost ?? 0).toString());
+                                        }
                                       }}
                                       disabled={inventoryAvailableVariants.length === 0}
                                       placeholder="Select variant"
@@ -1104,47 +1350,53 @@ export function ExpenseForm({
                                       allowClear={false}
                                     />
                                   </div>
-                                  <div>
-                                    <label className="block text-sm font-medium text-foreground">Quantity Purchased</label>
-                                    <Input
-                                      type="number"
-                                      min={1}
-                                      value={inventoryQuantity}
-                                      onChange={(e) => setInventoryQuantity(e.target.value)}
-                                    />
-                                  </div>
+                                  {isInventoryPurchase && (
+                                    <>
+                                      <div>
+                                        <label className="block text-sm font-medium text-foreground">Quantity Purchased</label>
+                                        <Input
+                                          type="number"
+                                          min={1}
+                                          value={inventoryQuantity}
+                                          onChange={(e) => setInventoryQuantity(e.target.value)}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-foreground">
+                                          {currentCurrencyCode
+                                            ? `Unit Cost (${currentCurrencyCode})`
+                                            : 'Unit Cost'}
+                                        </label>
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          min={0}
+                                          value={inventoryUnitCost}
+                                          onChange={(e) => setInventoryUnitCost(e.target.value)}
+                                        />
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                                {isInventoryPurchase && (
                                   <div>
                                     <label className="block text-sm font-medium text-foreground">
                                       {currentCurrencyCode
-                                        ? `Unit Cost (${currentCurrencyCode})`
-                                        : 'Unit Cost'}
+                                        ? `Total (${currentCurrencyCode})`
+                                        : 'Total'}
                                     </label>
                                     <Input
-                                      type="number"
-                                      step="0.01"
-                                      min={0}
-                                      value={inventoryUnitCost}
-                                      onChange={(e) => setInventoryUnitCost(e.target.value)}
+                                      value={(() => {
+                                        const qty = parseInt(inventoryQuantity || '0', 10) || 0;
+                                        const unitCost = parseFloat(inventoryUnitCost || '0') || 0;
+                                        const total = qty * unitCost;
+                                        return total ? total.toFixed(2) : '';
+                                      })()}
+                                      readOnly
+                                      className="bg-muted text-muted-foreground"
                                     />
                                   </div>
-                                </div>
-                                <div>
-                                  <label className="block text-sm font-medium text-foreground">
-                                    {currentCurrencyCode
-                                      ? `Total (${currentCurrencyCode})`
-                                      : 'Total'}
-                                  </label>
-                                  <Input
-                                    value={(() => {
-                                      const qty = parseInt(inventoryQuantity || '0', 10) || 0;
-                                      const unitCost = parseFloat(inventoryUnitCost || '0') || 0;
-                                      const total = qty * unitCost;
-                                      return total ? total.toFixed(2) : '';
-                                    })()}
-                                    readOnly
-                                    className="bg-muted text-muted-foreground"
-                                  />
-                                </div>
+                                )}
                               </div>
                             )}
 

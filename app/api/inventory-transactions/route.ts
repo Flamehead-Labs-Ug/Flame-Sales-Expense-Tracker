@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/database'
 import { getApiOrSessionUser } from '@/lib/api-auth-keys'
 import { computeAmountInOrgCurrency } from '@/lib/org-currency'
+import { assertCycleNotInventoryLocked, isCycleInventoryLockedError } from '@/lib/cycle-inventory-lock'
+import { postInventoryV2Movement } from '@/lib/inventory-v2'
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,6 +17,10 @@ export async function GET(request: NextRequest) {
     const variantId = searchParams.get('variant_id')
     const projectId = searchParams.get('project_id')
     const cycleId = searchParams.get('cycle_id')
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+    const limitParam = searchParams.get('limit')
+    const limit = Math.max(1, Math.min(parseInt(limitParam || '200', 10) || 200, 5000))
 
     let query = 'SELECT * FROM inventory_transactions WHERE organization_id = $1'
     const params: any[] = [user.organizationId]
@@ -44,7 +50,21 @@ export async function GET(request: NextRequest) {
       params.push(cycleId)
     }
 
-    query += ' ORDER BY created_at DESC LIMIT 200'
+    if (from) {
+      i += 1
+      query += ` AND created_at >= $${i}::timestamptz`
+      params.push(from)
+    }
+
+    if (to) {
+      i += 1
+      query += ` AND created_at <= $${i}::timestamptz`
+      params.push(to)
+    }
+
+    i += 1
+    query += ` ORDER BY created_at DESC LIMIT $${i}`
+    params.push(limit)
 
     const result = await db.query(query, params)
     return NextResponse.json({ status: 'success', transactions: result.rows })
@@ -87,6 +107,11 @@ export async function POST(request: NextRequest) {
 
     const safeQty = typeof quantity === 'number' ? quantity : parseInt(quantity || '0', 10) || 0
     const safeApplyStock = apply_stock === undefined ? true : Boolean(apply_stock)
+
+    const safeCycleId = cycle_id === undefined || cycle_id === null
+      ? null
+      : (typeof cycle_id === 'number' ? cycle_id : parseInt(cycle_id || '0', 10) || null)
+    await assertCycleNotInventoryLocked(db.query, safeCycleId, organizationId)
 
     if (!product_id) {
       return NextResponse.json({ status: 'error', message: 'product_id is required' }, { status: 400 })
@@ -136,8 +161,9 @@ export async function POST(request: NextRequest) {
       ? await computeAmountInOrgCurrency(organizationId, project_id || null, amount)
       : 0
 
+    const normalizedType = String(type || '').toUpperCase()
     const quantityDelta = safeApplyStock
-      ? (type === 'PURCHASE' || type === 'ADJUSTMENT_IN' ? safeQty : -safeQty)
+      ? (normalizedType === 'PURCHASE' || normalizedType === 'ADJUSTMENT_IN' || normalizedType === 'OPENING_BALANCE' ? safeQty : -safeQty)
       : 0
 
     const safeExpenseId = expense_id === undefined || expense_id === null
@@ -269,8 +295,49 @@ export async function POST(request: NextRequest) {
     )
 
     const row = result.rows[0] || {}
+
+    if (safeApplyStock && safeCycleId && project_id && product_id) {
+      const normalizedType = String(type || '').toUpperCase()
+      const v2Type =
+        normalizedType === 'PURCHASE'
+          ? 'PURCHASE_RECEIPT'
+          : (normalizedType === 'SALE'
+            ? 'SALE_ISSUE'
+            : (normalizedType === 'SALE_REVERSAL' || normalizedType === 'REVERSAL'
+              ? 'REVERSAL'
+              : (normalizedType.startsWith('ADJUST') ? 'ADJUSTMENT' : normalizedType)))
+
+      const sourceType = Boolean(create_expense)
+        ? 'expense'
+        : (safeExpenseId ? 'expense' : 'inventory_transaction')
+      const sourceId = Boolean(create_expense)
+        ? (row.expense_id ?? null)
+        : (safeExpenseId ?? null)
+
+      try {
+        await postInventoryV2Movement(db.query, {
+          organizationId,
+          projectId: project_id,
+          cycleId: safeCycleId,
+          productId: product_id,
+          productVariantId: variant_id || null,
+          quantityDelta,
+          unitCost: safeUnitCost || null,
+          transactionType: v2Type,
+          sourceType,
+          sourceId: sourceId == null ? null : Number(sourceId) || null,
+          notes: notes || null,
+          createdBy: userId,
+        })
+      } catch {
+      }
+    }
+
     return NextResponse.json({ status: 'success', ...row })
   } catch (error) {
+    if (isCycleInventoryLockedError(error)) {
+      return NextResponse.json({ status: 'error', message: error.message }, { status: 409 })
+    }
     console.error('Inventory transactions POST error:', error)
     const message = error instanceof Error ? error.message : 'Failed to create inventory transaction'
     return NextResponse.json({ status: 'error', message }, { status: 500 })

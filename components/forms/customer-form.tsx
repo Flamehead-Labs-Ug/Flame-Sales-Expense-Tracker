@@ -16,7 +16,7 @@ export interface Customer {
 
 interface CustomerFormProps {
   editingCustomer: Customer | null;
-  onSuccess: () => void;
+  onSuccess: (customer?: Customer) => void;
   onCancel: () => void;
 }
 
@@ -48,7 +48,7 @@ export function CustomerForm({ editingCustomer, onSuccess, onCancel }: CustomerF
         ? { id: editingCustomer.id, ...formData }
         : formData;
 
-      const response = await fetch('/api/customers', {
+      const response = await fetch('/api/v1/customers', {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -58,7 +58,7 @@ export function CustomerForm({ editingCustomer, onSuccess, onCancel }: CustomerF
 
       if (data.status === 'success') {
         toast.success(editingCustomer ? 'Customer updated' : 'Customer created');
-        onSuccess();
+        onSuccess(data.customer);
       } else {
         toast.error(data.message || 'Failed to save customer');
       }

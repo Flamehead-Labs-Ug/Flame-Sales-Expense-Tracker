@@ -181,18 +181,11 @@ export function ExpenseForm({
     const [showNewCategoryForm, setShowNewCategoryForm] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
 
-    const INVENTORY_PURCHASE_CATEGORY_NAME = 'Product/ Inventory / Stock Purchases';
+    const INVENTORY_PURCHASE_CATEGORY_NAME = 'Product/Finished Goods';
     const COGS_CATEGORY_NAMES = [
       'Raw Materials',
-      'Product/ Inventory / Stock Purchases',
-      'Direct Labor',
-      'Production Costs',
-      'Cost of Services',
-      'Manufacturing Costs',
-      'Packaging Materials',
-      'Freight & Delivery (Inbound)',
-      'Job / Project Materials',
-      'Service Delivery Costs',
+      'Work In Progress',
+      'Product/Finished Goods',
     ];
     const [inventoryProducts, setInventoryProducts] = useState<InventoryVariantOption[]>([]);
     const [inventorySelectedProductName, setInventorySelectedProductName] = useState('');

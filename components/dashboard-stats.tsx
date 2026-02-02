@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useFilter } from '@/lib/context/filter-context'
+import { calcRemainingBudget } from '@/lib/accounting/formulas'
 
 interface SummaryStats {
   totalRevenue: number
@@ -73,7 +74,7 @@ export function DashboardStats() {
   const totalExpenses = stats?.totalExpenses ?? 0
   const netProfit = stats?.netProfit ?? 0
   const totalBudgetAllotment = stats?.totalBudgetAllotment ?? 0
-  const remainingBudget = totalBudgetAllotment - totalExpenses
+  const remainingBudget = calcRemainingBudget(totalBudgetAllotment, totalExpenses)
   const currencyLabel = currentCurrencyCode || ''
 
   return (

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/database'
 import { getApiOrSessionUser } from '@/lib/api-auth-keys'
 
+export const dynamic = 'force-dynamic';
+
 /**
  * @swagger
  * /api/projects:
@@ -230,16 +232,34 @@ export async function POST(request: NextRequest) {
     if (!user?.organizationId) {
       return NextResponse.json({ status: 'error', message: 'API key required' }, { status: 401 });
     }
+
     if (user.role !== 'admin') {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
-    const { organizationId: targetOrgId, id: userId } = user;
+    const { organizationId: userOrgId, id: userId } = user;
 
-    const { project_name, project_category_id, currency_code } = await request.json();
-    
+    const body = await request.json();
+    const { project_name, project_category_id, organization_id, currency_code } = body ?? {};
+
+    let targetOrgId: number = Number(userOrgId);
+    const requestedOrgId = organization_id != null ? Number(organization_id) : null;
+
+    if (requestedOrgId && requestedOrgId !== Number(userOrgId)) {
+      const orgCheck = await db.query(
+        'SELECT id FROM organizations WHERE id = $1 AND created_by = $2',
+        [requestedOrgId, user.id],
+      );
+
+      if (!orgCheck.rows.length) {
+        return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
+      }
+
+      targetOrgId = requestedOrgId;
+    }
+
     const result = await db.query(
       'INSERT INTO projects (project_name, project_category_id, organization_id, created_by, currency_code) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [project_name, project_category_id, targetOrgId, userId, currency_code || null]
+      [project_name, project_category_id, targetOrgId, String(userId), currency_code || null],
     )
     
     return NextResponse.json({ 
@@ -261,16 +281,17 @@ export async function PUT(request: NextRequest) {
     if (!user?.organizationId) {
       return NextResponse.json({ status: 'error', message: 'API key required' }, { status: 401 });
     }
+
     if (user.role !== 'admin') {
       return NextResponse.json({ status: 'error', message: 'Forbidden' }, { status: 403 });
     }
     const { organizationId } = user;
 
-    const { id, project_name, description, start_date, end_date, project_category_id, expense_category_id, currency_code } = await request.json();
+    const { id, project_name, project_category_id, currency_code } = await request.json();
     
     const result = await db.query(
-      'UPDATE projects SET project_name = $1, description = $2, start_date = $3, end_date = $4, project_category_id = $5, category_id = $6, currency_code = $7 WHERE id = $8 AND organization_id = $9 RETURNING *',
-      [project_name, description || null, start_date || null, end_date || null, project_category_id, expense_category_id || null, currency_code || null, id, organizationId]
+      'UPDATE projects SET project_name = $1, project_category_id = $2, currency_code = $3 WHERE id = $4 AND organization_id = $5 RETURNING *',
+      [project_name, project_category_id, currency_code || null, id, organizationId]
     )
     
     return NextResponse.json({

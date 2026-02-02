@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { useFilter } from '@/lib/context/filter-context';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
+import { calcExpenseTotalsByProjectCategory, calcGrossProfit, calcNetProfitFromGrossProfit } from '@/lib/accounting/formulas';
 
 interface ProjectPnl {
   projectId: number;
@@ -24,15 +25,39 @@ interface ProjectPnl {
   netProfit: number;
 }
 
+interface Expense {
+  id: number;
+  category_id?: number | null;
+  amount: number;
+}
+
+interface ExpenseCategory {
+  id: number;
+  project_category_id?: number | null;
+}
+
+interface ProjectCategory {
+  id: number;
+  category_name: string;
+}
+
 export function PnlByProjectChart() {
   const { selectedProject, selectedCycle, currentCurrencyCode } = useFilter();
   const [data, setData] = useState<ProjectPnl[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([]);
   const currencyCode = currentCurrencyCode || 'USD';
 
-  const totalRevenue = data.reduce((sum, item) => sum + item.totalRevenue, 0);
-  const totalExpenses = data.reduce((sum, item) => sum + item.totalExpenses, 0);
-  const netProfit = totalRevenue - totalExpenses;
+  const netSales = data.reduce((sum, item) => sum + item.totalRevenue, 0);
+  const { totalCogs, totalOperatingExpenses } = calcExpenseTotalsByProjectCategory(
+    expenses,
+    categories,
+    projectCategories,
+  );
+  const grossProfit = calcGrossProfit(netSales, totalCogs);
+  const netProfitLoss = calcNetProfitFromGrossProfit(grossProfit, totalOperatingExpenses);
 
   const chartConfig: ChartConfig = {
     revenue: {
@@ -97,14 +122,55 @@ export function PnlByProjectChart() {
         const response = await fetch(`/api/v1/reports/pnl-by-project?${params.toString()}`);
         const result = await response.json();
 
+        const expenseUrl = new URL('/api/v1/expenses', window.location.origin)
+        if (selectedProject) expenseUrl.searchParams.set('project_id', selectedProject)
+        if (selectedCycle) expenseUrl.searchParams.set('cycle_id', selectedCycle)
+
+        const categoriesUrl = new URL('/api/v1/expense-categories', window.location.origin)
+        if (selectedProject) categoriesUrl.searchParams.set('projectId', selectedProject)
+
+        const projectCategoriesUrl = new URL('/api/v1/project-categories', window.location.origin)
+        if (selectedProject) projectCategoriesUrl.searchParams.set('projectId', selectedProject)
+
+        const [expensesRes, categoriesRes, projectCategoriesRes] = await Promise.all([
+          fetch(expenseUrl.toString()),
+          fetch(categoriesUrl.toString()),
+          fetch(projectCategoriesUrl.toString()),
+        ])
+
+        const expensesData = await expensesRes.json()
+        const categoriesData = await categoriesRes.json()
+        const projectCategoriesData = await projectCategoriesRes.json()
+
         if (result.status === 'success') {
           setData(result.data || []);
         } else {
           setData([]);
         }
+
+        if (expensesData.status === 'success') {
+          setExpenses(expensesData.expenses || [])
+        } else {
+          setExpenses([])
+        }
+
+        if (categoriesData.status === 'success') {
+          setCategories(categoriesData.categories || [])
+        } else {
+          setCategories([])
+        }
+
+        if (projectCategoriesData.status === 'success') {
+          setProjectCategories(projectCategoriesData.categories || [])
+        } else {
+          setProjectCategories([])
+        }
       } catch (error) {
         console.error('Failed to load P&L by project:', error);
         setData([]);
+        setExpenses([]);
+        setCategories([]);
+        setProjectCategories([]);
       } finally {
         setIsLoading(false);
       }
@@ -144,23 +210,23 @@ export function PnlByProjectChart() {
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 text-sm">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium tracking-tight">Total Revenue</CardTitle>
+            <CardTitle className="text-xs font-medium tracking-tight">Net Sales</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="text-sm text-muted-foreground">All projects</div>
             <div className="mt-1 text-lg font-semibold text-green-600">
-              {new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(totalRevenue)}
+              {new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(netSales)}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium tracking-tight">Total Expenses</CardTitle>
+            <CardTitle className="text-xs font-medium tracking-tight">Gross Profit</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-sm text-muted-foreground">All projects</div>
-            <div className="mt-1 text-lg font-semibold text-red-600">
-              {new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(totalExpenses)}
+            <div className="text-sm text-muted-foreground">Net Sales - COGS</div>
+            <div className={`mt-1 text-lg font-semibold ${grossProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(grossProfit)}
             </div>
           </CardContent>
         </Card>
@@ -169,9 +235,9 @@ export function PnlByProjectChart() {
             <CardTitle className="text-xs font-medium tracking-tight">Net Profit / Loss</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-sm text-muted-foreground">Revenue - Expenses</div>
-            <div className={`mt-1 text-lg font-semibold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(netProfit)}
+            <div className="text-sm text-muted-foreground">Gross Profit - Operating Expenses</div>
+            <div className={`mt-1 text-lg font-semibold ${netProfitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(netProfitLoss)}
             </div>
           </CardContent>
         </Card>

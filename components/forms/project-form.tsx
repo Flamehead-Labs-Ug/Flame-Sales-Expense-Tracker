@@ -5,6 +5,7 @@ import {
   useEffect,
   FormEvent,
   ChangeEvent,
+  useRef,
   Dispatch,
   SetStateAction,
 } from 'react';
@@ -93,6 +94,8 @@ export function ProjectForm({
   onSuccess,
   onCancel,
 }: ProjectFormProps) {
+  const attemptedPresetApplyOrgsRef = useRef<Set<string>>(new Set());
+
   const [formData, setFormData] = useState<ProjectFormData>({
     project_name: '',
     description: '',
@@ -112,6 +115,12 @@ export function ProjectForm({
   const [currencyManuallySet, setCurrencyManuallySet] = useState(false);
 
   const ensureDefaultCategoriesForOrganization = async (organizationId: string) => {
+    if (attemptedPresetApplyOrgsRef.current.has(organizationId)) {
+      return;
+    }
+
+    attemptedPresetApplyOrgsRef.current.add(organizationId);
+
     const orgIdNum = parseInt(organizationId, 10);
     if (!Number.isFinite(orgIdNum)) return;
 

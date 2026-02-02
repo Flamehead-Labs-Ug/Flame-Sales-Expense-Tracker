@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Trash2, Edit, Plus, Search } from 'lucide-react';
 import { useFilter } from '@/lib/context/filter-context';
 import { AuthGuard } from '@/components/auth-guard';
+import { calcExpenseTotalsByProjectCategory } from '@/lib/accounting/formulas';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -233,28 +234,11 @@ function ExpensesPageContent() {
   const remainingBudget = summary
     ? summary.totalBudgetAllotment - summary.totalExpenses
     : 0;
-  const cogsProjectCategoryId = projectCategories.find(
-    (pc) => (pc.category_name || '').trim().toLowerCase() === 'cogs',
-  )?.id;
-  const operatingExpensesProjectCategoryId = projectCategories.find(
-    (pc) => (pc.category_name || '').trim().toLowerCase() === 'operating expenses',
-  )?.id;
-
-  const totalCogs = expenses.reduce((sum, expense) => {
-    if (!cogsProjectCategoryId) return sum;
-    const category = categories.find((c) => c.id === expense.category_id);
-    if (!category) return sum;
-    if ((category.project_category_id ?? null) !== cogsProjectCategoryId) return sum;
-    return sum + (Number(expense.amount) || 0);
-  }, 0);
-
-  const totalOperatingExpenses = expenses.reduce((sum, expense) => {
-    if (!operatingExpensesProjectCategoryId) return sum;
-    const category = categories.find((c) => c.id === expense.category_id);
-    if (!category) return sum;
-    if ((category.project_category_id ?? null) !== operatingExpensesProjectCategoryId) return sum;
-    return sum + (Number(expense.amount) || 0);
-  }, 0);
+  const { totalCogs, totalOperatingExpenses } = calcExpenseTotalsByProjectCategory(
+    expenses,
+    categories,
+    projectCategories,
+  );
   const currencyLabel = currentCurrencyCode || '';
 
   if (loading) {
@@ -294,20 +278,7 @@ function ExpensesPageContent() {
 
         <div className="flex-1 overflow-y-auto space-y-6 pr-2">
         {summary && (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
-                <CardTitle className="text-sm font-medium">Budget Allotment</CardTitle>
-              </CardHeader>
-              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                <div className="text-xl font-bold sm:text-2xl">
-                  {currencyLabel
-                    ? `${currencyLabel} ${Number(summary.totalBudgetAllotment ?? 0).toLocaleString()}`
-                    : Number(summary.totalBudgetAllotment ?? 0).toLocaleString()}
-                </div>
-              </CardContent>
-            </Card>
-
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
                 <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
@@ -348,20 +319,6 @@ function ExpensesPageContent() {
                 </div>
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader className="space-y-1 p-3 pb-2 sm:p-6 sm:pb-2">
-                <CardTitle className="text-sm font-medium">Remaining Spend</CardTitle>
-                <CardDescription className="text-xs">Budget - Expenses</CardDescription>
-              </CardHeader>
-              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                <div className={`text-xl font-bold sm:text-2xl ${remainingBudget >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {currencyLabel
-                    ? `${currencyLabel} ${Number(remainingBudget ?? 0).toLocaleString()}`
-                    : Number(remainingBudget ?? 0).toLocaleString()}
-                </div>
-              </CardContent>
-            </Card>
           </div>
         )}
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -379,42 +336,8 @@ function ExpensesPageContent() {
           </Button>
         </div>
 
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingExpense ? 'Edit Expense' : 'Add New Expense'}</DialogTitle>
-            </DialogHeader>
-            <div className="p-6">
-              <ExpenseForm 
-                editingExpense={editingExpense}
-                selectedProject={selectedProject}
-                selectedCycle={selectedCycle}
-                projects={projects}
-                cycles={cycles}
-                categories={categories}
-                vendors={vendors}
-                paymentMethods={paymentMethods}
-                projectCategories={projectCategories}
-                setCategories={setCategories}
-                setVendors={setVendors}
-                onSuccess={() => {
-                  setShowForm(false);
-                  setEditingExpense(null);
-                  loadData();
-                }}
-                onCancel={() => {
-                  setShowForm(false);
-                  setEditingExpense(null);
-                }}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        </div>
-
-        <div className="mt-6 rounded-lg border border-border bg-card overflow-hidden">
-          <div className="max-h-[60vh] overflow-y-auto overflow-x-auto">
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          <div className="overflow-y-auto overflow-x-auto">
             {expenses.length > 0 ? (
               <table className="min-w-full divide-y divide-border text-sm">
                 <thead className="bg-muted/50">
@@ -484,6 +407,40 @@ function ExpensesPageContent() {
               </div>
             )}
           </div>
+        </div>
+
+        <Dialog open={showForm} onOpenChange={setShowForm}>
+          <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingExpense ? 'Edit Expense' : 'Add New Expense'}</DialogTitle>
+            </DialogHeader>
+            <div className="p-6">
+              <ExpenseForm 
+                editingExpense={editingExpense}
+                selectedProject={selectedProject}
+                selectedCycle={selectedCycle}
+                projects={projects}
+                cycles={cycles}
+                categories={categories}
+                vendors={vendors}
+                paymentMethods={paymentMethods}
+                projectCategories={projectCategories}
+                setCategories={setCategories}
+                setVendors={setVendors}
+                onSuccess={() => {
+                  setShowForm(false);
+                  setEditingExpense(null);
+                  loadData();
+                }}
+                onCancel={() => {
+                  setShowForm(false);
+                  setEditingExpense(null);
+                }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+
         </div>
       </div>
     </AuthGuard>

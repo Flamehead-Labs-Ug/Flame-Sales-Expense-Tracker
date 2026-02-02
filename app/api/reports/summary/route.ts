@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
 
     if (!isOrgLevelView || !orgCurrencyCode) {
       // Project-level view or no org currency configured: fall back to simple aggregation in stored units.
-      let totalSalesQuery = `SELECT COALESCE(SUM(amount), 0) as total_revenue FROM sales WHERE organization_id = $1`;
+      let totalSalesQuery = `SELECT COALESCE(SUM(amount), 0) as total_revenue FROM sales WHERE organization_id = $1 AND status = 'completed'`;
       let totalExpensesQuery = `SELECT COALESCE(SUM(amount), 0) as total_expenses FROM expenses WHERE organization_id = $1`;
       let totalBudgetQuery = `SELECT COALESCE(SUM(budget_allotment), 0) as total_budget FROM cycles WHERE organization_id = $1`;
 
@@ -190,6 +190,7 @@ export async function GET(request: NextRequest) {
         JOIN organizations org ON s.organization_id = org.id
         LEFT JOIN projects p ON s.project_id = p.id
         WHERE s.organization_id = $1
+          AND s.status = 'completed'
           AND ($2::int[] IS NULL OR s.project_id = ANY($2::int[]))
       `;
       if (cycleId) {
@@ -281,6 +282,7 @@ export async function GET(request: NextRequest) {
           FROM sales
           WHERE organization_id = $1
             AND sale_date >= (NOW() - INTERVAL '11 months')
+            AND status = 'completed'
             AND ($2::int IS NULL OR project_id = $2::int)
             AND ($3::int IS NULL OR cycle_id = $3::int)
             AND ($4::int[] IS NULL OR project_id = ANY($4::int[]))
@@ -354,6 +356,7 @@ export async function GET(request: NextRequest) {
         LEFT JOIN projects p ON s.project_id = p.id
         WHERE s.organization_id = $1
           AND s.sale_date >= (NOW() - INTERVAL '11 months')
+          AND s.status = 'completed'
           AND ($2::int[] IS NULL OR s.project_id = ANY($2::int[]))
       `;
       if (cycleId) {

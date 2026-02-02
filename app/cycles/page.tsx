@@ -2,12 +2,13 @@
 
 import { useState, useEffect, FormEvent, ChangeEvent } from 'react';
 import { toast } from 'sonner';
-import { Trash2, Edit, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useFilter } from '@/lib/context/filter-context';
 import { AuthGuard } from '@/components/auth-guard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import {
@@ -50,7 +51,7 @@ interface ReportSummary {
 }
 
 function CyclesPageContent() {
-  const { selectedProject, projects, refreshCycles, currentCurrencyCode, setSelectedCycle } = useFilter();
+  const { selectedProject, selectedOrganization, projects, refreshCycles, currentCurrencyCode, setSelectedCycle } = useFilter();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [cycles, setCycles] = useState<Cycle[]>([]);
@@ -69,7 +70,7 @@ function CyclesPageContent() {
 
   useEffect(() => {
     loadData();
-  }, [selectedProject]);
+  }, [selectedProject, selectedOrganization]);
 
   useEffect(() => {
     if (searchParams?.get('new') !== '1') return;
@@ -85,7 +86,17 @@ function CyclesPageContent() {
 
   const loadData = async () => {
     try {
-      const cyclesRes = await fetch('/api/v1/cycles');
+      const cyclesParams = new URLSearchParams();
+      if (selectedProject) {
+        cyclesParams.set('project_id', selectedProject);
+      }
+      if (selectedOrganization) {
+        cyclesParams.set('org_id', selectedOrganization);
+      }
+      const cyclesQuery = cyclesParams.toString();
+      const cyclesUrl = cyclesQuery ? `/api/v1/cycles?${cyclesQuery}` : '/api/v1/cycles';
+
+      const cyclesRes = await fetch(cyclesUrl, { cache: 'no-store' });
 
       const cyclesData = await cyclesRes.json();
 
@@ -94,6 +105,9 @@ function CyclesPageContent() {
       }
 
       const summaryParams = new URLSearchParams();
+      if (selectedOrganization) {
+        summaryParams.set('orgId', selectedOrganization);
+      }
       if (selectedProject) {
         summaryParams.set('projectId', selectedProject);
       }
@@ -102,7 +116,7 @@ function CyclesPageContent() {
         ? `/api/v1/reports/summary?${summaryQuery}`
         : '/api/v1/reports/summary';
 
-      const summaryRes = await fetch(summaryUrl);
+      const summaryRes = await fetch(summaryUrl, { cache: 'no-store' });
       const summaryData = await summaryRes.json();
 
       if (summaryData.status === 'success') {
@@ -126,6 +140,7 @@ function CyclesPageContent() {
       cycle_name: `Cycle ${cycleNumber}`,
       cycle_number: cycleNumber,
       project_id: parseInt(selectedProject),
+      ...(!editingCycle && { carry_forward_inventory: true }),
       ...(formData.start_date && { start_date: formData.start_date }),
       ...(formData.end_date && { end_date: formData.end_date }),
       ...(formData.budget_allotment && { budget_allotment: parseFloat(formData.budget_allotment) })
@@ -163,39 +178,6 @@ function CyclesPageContent() {
       }
     } catch (error) {
       toast.error('Failed to save cycle');
-    }
-  };
-
-  const handleEdit = (cycle: Cycle) => {
-    setEditingCycle(cycle);
-    setFormData({
-      cycle_number: cycle.cycle_number.toString(),
-      start_date: cycle.start_date ? cycle.start_date.split('T')[0] : '',
-      end_date: cycle.end_date ? cycle.end_date.split('T')[0] : '',
-      budget_allotment: cycle.budget_allotment?.toString() || ''
-    });
-    setShowForm(true);
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this cycle?')) return;
-
-    try {
-      const response = await fetch(`/api/v1/cycles?id=${id}`, {
-        method: 'DELETE'
-      });
-
-      const data = await response.json();
-      
-      if (data.status === 'success') {
-        toast.success('Cycle deleted successfully');
-        loadData();
-        refreshCycles(); // Refresh the global cycles list
-      } else {
-        toast.error(data.message || 'Failed to delete cycle');
-      }
-    } catch (error) {
-      toast.error('Failed to delete cycle');
     }
   };
 
@@ -468,18 +450,6 @@ function CyclesPageContent() {
                     className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
                   >
                     View
-                  </button>
-                  <button 
-                    onClick={() => handleEdit(cycle)}
-                    className="inline-flex items-center px-3 py-1.5 border border-border text-sm font-medium rounded-md text-foreground bg-background hover:bg-muted"
-                  >
-                    Edit
-                  </button>
-                  <button 
-                    onClick={() => handleDelete(cycle.id)}
-                    className="inline-flex items-center px-3 py-1.5 border border-destructive/40 text-sm font-medium rounded-md text-destructive bg-background hover:bg-destructive/10"
-                  >
-                    Delete
                   </button>
                 </div>
               </div>

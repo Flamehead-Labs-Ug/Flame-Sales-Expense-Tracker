@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { CustomerForm, Customer as CustomerType } from '@/components/forms/customer-form';
+import { calcBalance, calcSaleStatusFromBalance, calcSaleTotal } from '@/lib/accounting/formulas';
 import { useFilter } from '@/lib/context/filter-context';
 import { Switcher } from '@/components/ui/shadcn-io/navbar-12/Switcher';
 
@@ -211,9 +212,9 @@ export function SaleForm({ editingSale, selectedProject, selectedCycle, projects
         const unitCostForAmount = parseFloat(formData.unit_cost) || 0;
         const unitPriceForAmount = parseFloat(formData.price) || 0;
         const quantityForAmount = parseInt(formData.quantity) || 0;
-        const totalAmountForBalance = unitPriceForAmount * quantityForAmount;
+        const totalAmountForBalance = calcSaleTotal(quantityForAmount, unitPriceForAmount);
         const cashAtHandNum = parseFloat(formData.cash_at_hand) || 0;
-        const remainingBalance = totalAmountForBalance - cashAtHandNum;
+        const remainingBalance = calcBalance(totalAmountForBalance, cashAtHandNum);
         
         const params = {
           customer: formData.customer,
@@ -221,7 +222,7 @@ export function SaleForm({ editingSale, selectedProject, selectedCycle, projects
           unit_cost: unitCostForAmount,
           price: unitPriceForAmount,
           // Auto status: pending when there is remaining balance, completed when fully paid
-          status: remainingBalance > 0 ? 'pending' : 'completed',
+          status: calcSaleStatusFromBalance(remainingBalance),
           sale_date: formData.sale_date,
           cash_at_hand: cashAtHandNum,
           balance: remainingBalance,
@@ -601,9 +602,17 @@ export function SaleForm({ editingSale, selectedProject, selectedCycle, projects
               </DialogHeader>
               <CustomerForm
                 editingCustomer={null}
-                onSuccess={() => {
+                onSuccess={(createdCustomer) => {
                   setShowCustomerDialog(false);
-                  loadCustomers(customerSearch);
+
+                  const name = (createdCustomer?.name || '').trim();
+                  if (name) {
+                    setCustomerSearch(name);
+                    setFormData((prev) => ({ ...prev, customer: name }));
+                    void loadCustomers(name);
+                  } else {
+                    void loadCustomers(customerSearch);
+                  }
                 }}
                 onCancel={() => {
                   setShowCustomerDialog(false);

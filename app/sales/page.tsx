@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Trash2, Edit, Plus } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 import { useFilter } from '@/lib/context/filter-context';
 import { AuthGuard } from '@/components/auth-guard';
+import { calcExpenseTotalsByProjectCategory, calcGrossProfit, calcSaleProfit, calcSaleTotal } from '@/lib/accounting/formulas';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import {
@@ -24,11 +26,14 @@ interface Sale {
   // New: specific variant involved in the sale (nullable for legacy rows)
   variant_id?: number;
   customer: string;
+  customer_name?: string;
+  customerName?: string;
   quantity: number;
   unit_cost: number;
   price: number;
   status: string;
   date: string;
+
   cycle_id?: number;
   cash_at_hand?: number;
   balance?: number;
@@ -55,6 +60,22 @@ interface Project {
   project_name: string;
 }
 
+interface Expense {
+  id: number;
+  category_id?: number | null;
+  amount: number;
+}
+
+interface ExpenseCategory {
+  id: number;
+  project_category_id?: number | null;
+}
+
+interface ProjectCategory {
+  id: number;
+  category_name: string;
+}
+
 // Variant-level product option used by the Sales form
 interface Product {
   // variant id from product_variants
@@ -77,6 +98,7 @@ const statusOptions = [
 ];
 
 function SalesPageContent() {
+  const router = useRouter();
   const { selectedProject, selectedCycle, projects, cycles: globalCycles, setSelectedProject, setSelectedCycle, selectedOrganization, organizations, currentCurrencyCode } = useFilter();
   const currentOrg = organizations.find((org) => org.id.toString() === selectedOrganization);
   const orgCurrencySymbol = currentOrg?.currency_symbol || '$';
@@ -84,6 +106,9 @@ function SalesPageContent() {
   const searchParams = useSearchParams();
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
@@ -110,7 +135,6 @@ function SalesPageContent() {
     }
   }, [searchParams, selectedProject, selectedCycle]);
 
-
   const loadData = async () => {
     try {
       const salesParams: any = { limit: 100 };
@@ -128,22 +152,56 @@ function SalesPageContent() {
         ? `/api/v1/reports/summary?${summaryQuery}`
         : '/api/v1/reports/summary'
 
-      const [salesRes, summaryRes] = await Promise.all([
+      const expenseUrl = new URL('/api/v1/expenses', window.location.origin)
+      if (selectedProject) expenseUrl.searchParams.set('project_id', selectedProject)
+      if (selectedCycle) expenseUrl.searchParams.set('cycle_id', selectedCycle)
+
+      const categoriesUrl = new URL('/api/v1/expense-categories', window.location.origin)
+      if (selectedProject) categoriesUrl.searchParams.set('projectId', selectedProject)
+
+      const projectCategoriesUrl = new URL('/api/v1/project-categories', window.location.origin)
+      if (selectedProject) projectCategoriesUrl.searchParams.set('projectId', selectedProject)
+
+      const [salesRes, summaryRes, expensesRes, categoriesRes, projectCategoriesRes] = await Promise.all([
         fetch(salesUrl.toString()),
         fetch(summaryUrl),
+        fetch(expenseUrl.toString()),
+        fetch(categoriesUrl.toString()),
+        fetch(projectCategoriesUrl.toString()),
       ]);
 
       const salesData = await salesRes.json();
       const summaryData = await summaryRes.json();
+      const expensesData = await expensesRes.json();
+      const categoriesData = await categoriesRes.json();
+      const projectCategoriesData = await projectCategoriesRes.json();
 
       if (salesData.status === 'success') {
-        setSales(salesData.sales || []);
+        const rawSales = Array.isArray(salesData.sales) ? salesData.sales : [];
+        setSales(
+          rawSales.map((sale: any) => ({
+            ...sale,
+            customer: sale.customer ?? sale.customer_name ?? sale.customerName ?? '',
+          })),
+        );
       }
 
       if (summaryData.status === 'success') {
         setSummary(summaryData);
       } else {
         setSummary(null);
+      }
+
+      if (expensesData.status === 'success') {
+        setExpenses(expensesData.expenses || []);
+      }
+
+      if (categoriesData.status === 'success') {
+        setCategories(categoriesData.categories || []);
+      }
+
+      if (projectCategoriesData.status === 'success') {
+        setProjectCategories(projectCategoriesData.categories || []);
       }
     } catch (error) {
       toast.error('Failed to load data');
@@ -199,22 +257,6 @@ function SalesPageContent() {
     } catch (error) {
       toast.error('Failed to load products');
     }
-  };
-
-
-  const handleEdit = (sale: Sale) => {
-    // Sync global navigation with sale's project and cycle
-    if (sale.project_id) {
-      setSelectedProject(sale.project_id.toString());
-      if (sale.cycle_id) {
-        // Wait a bit for cycles to load, then set the cycle
-        setTimeout(() => {
-          setSelectedCycle(sale.cycle_id!.toString());
-        }, 100);
-      }
-    }
-    setEditingSale(sale);
-    setShowForm(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -286,54 +328,13 @@ function SalesPageContent() {
     );
   };
 
-  const calculateTotal = (quantity: number, price: number) => {
-    return quantity * price;
-  };
-
-  const calculateProfit = (quantity: number, unitCost: number, price: number) => {
-    return (price - unitCost) * quantity;
-  };
-
-  const remainingBudget = summary
-    ? summary.totalBudgetAllotment - summary.totalExpenses
-    : 0;
-
-  let completedSalesCount = 0;
-  let completedSalesTotal = 0;
-  let pendingSalesCount = 0;
-  let pendingOutstandingTotal = 0;
-  let cashCollectedTotal = 0;
-
-  for (const sale of sales) {
-    const quantity = Number(sale.quantity) || 0;
-    const price = Number(sale.price) || 0;
-    const total = quantity * price;
-    const cashAtHand = Number((sale as any).cash_at_hand ?? 0);
-    const balance = Number((sale as any).balance ?? 0);
-
-    if (sale.status === 'completed') {
-      completedSalesCount += 1;
-      completedSalesTotal += total;
-      // For completed sales, prefer explicit cash_at_hand if present; otherwise assume fully paid.
-      if (!Number.isNaN(cashAtHand) && cashAtHand > 0) {
-        cashCollectedTotal += cashAtHand;
-      } else {
-        cashCollectedTotal += total;
-      }
-    } else if (sale.status === 'pending') {
-      pendingSalesCount += 1;
-      const outstanding = balance > 0 ? balance : Math.max(total - cashAtHand, 0);
-      pendingOutstandingTotal += outstanding;
-
-      // For pending sales, cash collected is whatever has already been paid.
-      if (!Number.isNaN(cashAtHand) && cashAtHand > 0) {
-        cashCollectedTotal += cashAtHand;
-      } else if (balance > 0) {
-        const inferredCollected = Math.max(total - balance, 0);
-        cashCollectedTotal += inferredCollected;
-      }
-    }
-  }
+  const { totalCogs } = calcExpenseTotalsByProjectCategory(
+    expenses,
+    categories,
+    projectCategories,
+  );
+  const netSales = Number(summary?.totalRevenue ?? 0);
+  const grossProfit = calcGrossProfit(netSales, totalCogs);
 
   if (loading) {
     return <div className="p-6">Loading...</div>;
@@ -361,29 +362,16 @@ function SalesPageContent() {
 
       <div className="flex-1 overflow-y-auto space-y-6 pr-2">
       {summary && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6 md:gap-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-2 lg:grid-cols-2 md:gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
-              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+              <CardTitle className="text-sm font-medium">Net Sales</CardTitle>
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-xl font-bold text-green-600 sm:text-2xl">
                 {currencyLabel
-                  ? `${currencyLabel} ${Number(summary.totalRevenue ?? 0).toLocaleString()}`
-                  : Number(summary.totalRevenue ?? 0).toLocaleString()}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
-              <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-xl font-bold text-red-600 sm:text-2xl">
-                {currencyLabel
-                  ? `${currencyLabel} ${Number(summary.totalExpenses ?? 0).toLocaleString()}`
-                  : Number(summary.totalExpenses ?? 0).toLocaleString()}
+                  ? `${currencyLabel} ${Number(netSales ?? 0).toLocaleString()}`
+                  : Number(netSales ?? 0).toLocaleString()}
               </div>
             </CardContent>
           </Card>
@@ -391,60 +379,15 @@ function SalesPageContent() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
               <div className="space-y-1">
-                <CardTitle className="text-sm font-medium">Net Profit / Loss</CardTitle>
-                <CardDescription className="text-xs">Revenue - Expenses</CardDescription>
+                <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
+                <CardDescription className="text-xs">Net Sales - COGS</CardDescription>
               </div>
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className={`text-xl font-bold sm:text-2xl ${summary.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              <div className={`text-xl font-bold sm:text-2xl ${grossProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {currencyLabel
-                  ? `${currencyLabel} ${Number(summary.netProfit ?? 0).toLocaleString()}`
-                  : Number(summary.netProfit ?? 0).toLocaleString()}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
-              <CardTitle className="text-sm font-medium">Cash Collected</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-xl font-bold text-green-600 sm:text-2xl">
-                {currencyLabel
-                  ? `${currencyLabel} ${Number(cashCollectedTotal || 0).toLocaleString()}`
-                  : Number(cashCollectedTotal || 0).toLocaleString()}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
-              <CardTitle className="text-sm font-medium">Completed Sales</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm text-muted-foreground mb-1">
-                {completedSalesCount.toLocaleString()} {completedSalesCount === 1 ? 'sale' : 'sales'}
-              </div>
-              <div className="text-lg font-bold text-green-600 sm:text-xl">
-                {currencyLabel
-                  ? `${currencyLabel} ${Number(completedSalesTotal || 0).toLocaleString()}`
-                  : Number(completedSalesTotal || 0).toLocaleString()}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-2 sm:p-6 sm:pb-2">
-              <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm text-muted-foreground mb-1">
-                {pendingSalesCount.toLocaleString()} {pendingSalesCount === 1 ? 'sale' : 'sales'}
-              </div>
-              <div className="text-lg font-bold text-yellow-600 sm:text-xl">
-                {currencyLabel
-                  ? `${currencyLabel} ${Number(pendingOutstandingTotal || 0).toLocaleString()}`
-                  : Number(pendingOutstandingTotal || 0).toLocaleString()}
+                  ? `${currencyLabel} ${Number(grossProfit ?? 0).toLocaleString()}`
+                  : Number(grossProfit ?? 0).toLocaleString()}
               </div>
             </CardContent>
           </Card>
@@ -479,10 +422,8 @@ function SalesPageContent() {
         </DialogContent>
       </Dialog>
 
-      </div>
-
-      <div className="mt-6 rounded-lg border border-border bg-card overflow-hidden">
-        <div className="max-h-[60vh] overflow-y-auto overflow-x-auto">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
+        <div className="overflow-y-auto overflow-x-auto">
           {sales.length > 0 ? (
             <table className="min-w-full divide-y divide-border text-sm">
               <thead className="bg-muted/50">
@@ -499,9 +440,8 @@ function SalesPageContent() {
             </thead>
             <tbody className="divide-y divide-border/60">
               {sales.map((sale) => {
-                const totalSale = sale.quantity * sale.price;
-                const totalCost = sale.quantity * sale.unit_cost;
-                const profit = totalSale - totalCost;
+                const totalSale = calcSaleTotal(sale.quantity, sale.price);
+                const profit = calcSaleProfit(sale.quantity, sale.price, sale.unit_cost);
 
                 const statusOption = statusOptions.find((s) => s.value === sale.status);
                 const statusLabel = statusOption?.label || (typeof sale.status === 'string'
@@ -517,7 +457,7 @@ function SalesPageContent() {
                         return new Date(dateStr).toLocaleDateString();
                       })()}
                     </td>
-                    <td className="px-4 py-2 whitespace-nowrap">{sale.customer}</td>
+                    <td className="px-4 py-2 whitespace-nowrap">{sale.customer || sale.customer_name || sale.customerName || 'N/A'}</td>
                     <td className="px-4 py-2 whitespace-nowrap">{getProductInfo(sale)}</td>
                     <td className="px-4 py-2 whitespace-nowrap">
                       <span className={statusOption?.color || 'bg-muted text-foreground px-2 py-1 rounded-full text-xs font-medium'}>
@@ -539,10 +479,10 @@ function SalesPageContent() {
                       <div className="inline-flex gap-2">
                         <button
                           type="button"
-                          onClick={() => handleEdit(sale)}
+                          onClick={() => router.push(`/sales/${sale.id}`)}
                           className="inline-flex items-center px-3 py-1.5 border border-border text-xs font-medium rounded-md text-foreground bg-background hover:bg-muted"
                         >
-                          Edit
+                          View
                         </button>
                         <button
                           type="button"
@@ -564,6 +504,7 @@ function SalesPageContent() {
             </div>
           )}
         </div>
+      </div>
       </div>
       </div>
     </AuthGuard>

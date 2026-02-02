@@ -114,12 +114,16 @@ export async function GET(request: NextRequest) {
     const { organizationId } = user;
 
     const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
     const search = searchParams.get('search');
 
     const params: any[] = [organizationId];
     let where = 'organization_id = $1';
 
-    if (search && search.trim()) {
+    if (id) {
+      params.push(id);
+      where += ` AND id = $2`;
+    } else if (search && search.trim()) {
       params.push(`%${search.trim()}%`);
       where += ` AND (name ILIKE $2 OR email ILIKE $2 OR phone ILIKE $2 OR phone_number ILIKE $2)`;
     }
@@ -132,6 +136,10 @@ export async function GET(request: NextRequest) {
        LIMIT 200`,
       params
     );
+
+    if (id) {
+      return NextResponse.json({ status: 'success', customer: result.rows[0] || null });
+    }
 
     return NextResponse.json({ status: 'success', customers: result.rows });
   } catch (error) {

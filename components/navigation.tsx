@@ -27,7 +27,7 @@ export const navigation = [
   { name: 'Docs', href: '/docs', icon: FileText },
   { name: 'Assistant', href: '/assistant', icon: Bot },
   { name: 'Cycles', href: '/cycles', icon: Repeat },
-  { name: 'Products', href: '/products', icon: Package },
+  { name: 'Inventory', href: '/inventory', icon: Package },
   { name: 'Expenses', href: '/expenses', icon: Wallet },
   { name: 'Sales', href: '/sales', icon: ShoppingCart },
   { name: 'Customers', href: '/customers', icon: Users },

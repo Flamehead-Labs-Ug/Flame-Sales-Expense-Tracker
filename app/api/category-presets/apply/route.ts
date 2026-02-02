@@ -103,11 +103,11 @@ export async function POST(request: NextRequest) {
       const existingProjectCategoryRes = await db.query(
         `SELECT *
            FROM public.project_categories
-          WHERE organization_id = $1
+          WHERE (organization_id = $1 OR organization_id IS NULL)
             AND project_id IS NOT DISTINCT FROM $2
             AND category_name = $3
             AND COALESCE(is_custom, 0) = 0
-          ORDER BY id
+          ORDER BY organization_id DESC NULLS LAST, id
           LIMIT 1`,
         [orgId, project_id ?? null, preset.name],
       );
@@ -115,15 +115,36 @@ export async function POST(request: NextRequest) {
       let projectCategory = existingProjectCategoryRes.rows[0];
 
       if (!projectCategory) {
-        const projectInsert = await db.query(
-          `INSERT INTO public.project_categories (category_name, description, organization_id, is_custom, project_id)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING *`,
-          [preset.name, preset.description || null, orgId, 0, project_id ?? null]
-        )
+        try {
+          const projectInsert = await db.query(
+            `INSERT INTO public.project_categories (category_name, description, organization_id, is_custom, project_id)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING *`,
+            [preset.name, preset.description || null, orgId, 0, project_id ?? null]
+          )
 
-        projectCategory = projectInsert.rows[0]
-        createdProjectCategories.push(projectCategory)
+          projectCategory = projectInsert.rows[0]
+          createdProjectCategories.push(projectCategory)
+        } catch (e: any) {
+          // If concurrent requests try to create the same category, swallow the unique violation
+          // and re-read the existing row.
+          if (e?.code === '23505') {
+            const reread = await db.query(
+              `SELECT *
+                 FROM public.project_categories
+                WHERE (organization_id = $1 OR organization_id IS NULL)
+                  AND project_id IS NOT DISTINCT FROM $2
+                  AND category_name = $3
+                  AND COALESCE(is_custom, 0) = 0
+                ORDER BY organization_id DESC NULLS LAST, id
+                LIMIT 1`,
+              [orgId, project_id ?? null, preset.name],
+            )
+            projectCategory = reread.rows[0]
+          } else {
+            throw e
+          }
+        }
       }
 
       const expensePresets = expensePresetsByPresetId[preset.id] || []
@@ -144,13 +165,21 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        const expenseInsert = await db.query(
-          `INSERT INTO public.expense_category (category_name, description, project_category_id, organization_id, project_id)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING *`,
-          [expPreset.name, expPreset.description || null, projectCategory.id, orgId, project_id ?? null]
-        )
-        createdExpenseCategories.push(expenseInsert.rows[0])
+        try {
+          const expenseInsert = await db.query(
+            `INSERT INTO public.expense_category (category_name, description, project_category_id, organization_id, project_id)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING *`,
+            [expPreset.name, expPreset.description || null, projectCategory.id, orgId, project_id ?? null]
+          )
+          createdExpenseCategories.push(expenseInsert.rows[0])
+        } catch (e: any) {
+          // Concurrent preset applications can race; ignore duplicates.
+          if (e?.code === '23505') {
+            continue
+          }
+          throw e
+        }
       }
     }
 

@@ -10,6 +10,7 @@ import { PnlByProjectChart } from '@/components/charts/pnl-by-project-chart';
 import { SalesBreakdownChart } from '@/components/charts/sales-breakdown-chart';
 import { BudgetVsActualChart } from '@/components/charts/budget-vs-actual-chart';
 import { ExpensesByCategoryChart } from '@/components/expenses-by-category-chart';
+import { PnlStatement } from '@/components/pnl-statement';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { useFilter } from '@/lib/context/filter-context';
@@ -117,7 +118,7 @@ function ReportsPageContent() {
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="pnl" id="pnl" />
                       <Label htmlFor="pnl" className="text-sm">
-                        P&amp;L by Project
+                        P&amp;L
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -221,7 +222,16 @@ function ReportsPageContent() {
                       )}
                     </div>
                   )}
-                  {activeView === 'pnl' && <PnlByProjectChart />}
+                  {activeView === 'pnl' && (
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                      <div>
+                        <PnlByProjectChart />
+                      </div>
+                      <div>
+                        <PnlStatement />
+                      </div>
+                    </div>
+                  )}
                   {activeView === 'expenses' && <ExpensesByCategoryChart />}
                   {activeView === 'sales' && <SalesBreakdownChart />}
                   {activeView === 'budget' && <BudgetVsActualChart />}

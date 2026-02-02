@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { AuthGuard } from '@/components/auth-guard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,7 @@ import { toast } from 'sonner';
 import { CustomerForm, Customer } from '@/components/forms/customer-form';
 
 function CustomersPageContent() {
+  const router = useRouter();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -147,6 +149,13 @@ function CustomersPageContent() {
                     <td className="px-4 py-2 whitespace-nowrap">{customer.phone || customer.phone_number || '-'}</td>
                     <td className="px-4 py-2 whitespace-nowrap text-right">
                       <div className="inline-flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/customers/${customer.id}`)}
+                          className="inline-flex items-center px-3 py-1.5 border border-border text-xs font-medium rounded-md text-foreground bg-background hover:bg-muted"
+                        >
+                          View
+                        </button>
                         <button
                           type="button"
                           onClick={() => {

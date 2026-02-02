@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useFilter } from '@/lib/context/filter-context'
+import { calcNetProfit, calcSaleTotal } from '@/lib/accounting/formulas'
 
 interface Expense {
   id: number
@@ -141,13 +142,13 @@ export function DashboardAnalytics() {
   const cashflow: CashflowSummary = useMemo(() => {
     const totalExpenses = recentExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
     const totalSales = recentSales.reduce(
-      (sum, s) => sum + Number((s.price || 0) * (s.quantity || 0)),
+      (sum, s) => sum + calcSaleTotal(s.quantity || 0, s.price || 0),
       0,
     )
     return {
       totalExpenses,
       totalSales,
-      netProfit: totalSales - totalExpenses,
+      netProfit: calcNetProfit(totalSales, totalExpenses),
     }
   }, [recentExpenses, recentSales])
 

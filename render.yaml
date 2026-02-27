@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: flame-assistant-agent
+    env: docker
+    dockerfilePath: ./agent/Dockerfile
+    dockerContext: ./agent
+    region: ohio
+    plan: free
+    envVars:
+      - key: PORT
+        value: 8123
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_ENDPOINT
+        value: "https://api.smith.langchain.com"
+      - key: LANGSMITH_PROJECT
+        value: "flame sales and expense tracker"
+      - key: LANGGRAPH_DEPLOYMENT_URL
+        fromService:
+          type: web
+          name: flame-assistant-agent
+          envVarKey: RENDER_EXTERNAL_URL
+      # Add secret GROQ_API_KEY manually via the Render dashboard
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false

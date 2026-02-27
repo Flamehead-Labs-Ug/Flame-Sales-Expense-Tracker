@@ -102,7 +102,8 @@ export function FlameAssistantProvider({ children }: { children: React.ReactNode
     } catch (error) {
       console.error('Failed to refresh assistant context:', error);
     }
-  }, [user, pathname, setState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, pathname]);
 
   // Refresh context on mount and when user/path changes
   React.useEffect(() => {
